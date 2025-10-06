@@ -73,6 +73,9 @@ type Totals = {
   investorNet: number;
   investorNetPerDay: number;
   projectRevenue: number;
+  baselineNet: number;
+  baselineNetPerDay: number;
+  capital: number;
 };
 
 type ProjectionEntry = {
@@ -103,10 +106,22 @@ type ComputedState = {
   };
 };
 
+type BoosterImpact = {
+  booster: Booster;
+  netGain: number;
+  netPerDay: number;
+  netAfterCost: number;
+  roi: number | null;
+  paybackDays: number | null;
+  coverageDeposits: number;
+  coverageShare: number;
+  affectedTariffs: number;
+};
+
 type PricingControls = {
   baseCapturePct: number;
   whaleCapturePct: number;
-  investorBonusPct: number;
+  investorRoiFloorPct: number;
   minPrice: number;
   maxPrice: number;
 };
@@ -206,7 +221,7 @@ function boosterCoverageMultiplier(value: number, coverageFrac: number) {
 const DEFAULT_PRICING: PricingControls = {
   baseCapturePct: 65,
   whaleCapturePct: 45,
-  investorBonusPct: 60,
+  investorRoiFloorPct: 120,
   minPrice: 0.5,
   maxPrice: 1_000_000
 };
@@ -229,7 +244,7 @@ function smartPriceBoostersDyn(
 
   const baseCapture = clamp(pricing.baseCapturePct / 100, 0, 1);
   const whaleCapture = clamp(pricing.whaleCapturePct / 100, 0, 1);
-  const investorBonus = Math.max(0, pricing.investorBonusPct / 100);
+  const investorRoiFloor = Math.max(0, pricing.investorRoiFloorPct / 100);
   const minPrice = Math.max(0, pricing.minPrice);
   const maxPrice = Math.max(minPrice, pricing.maxPrice);
 
@@ -276,8 +291,8 @@ function smartPriceBoostersDyn(
       dynPrice = basePrice + whaleCapture * (portNet - baseNet);
     }
 
-    if (portNet > 0 && investorBonus > 0) {
-      const maxByBonus = portNet / (1 + investorBonus);
+    if (portNet > 0 && investorRoiFloor > 0) {
+      const maxByBonus = portNet / (1 + investorRoiFloor);
       dynPrice = Math.min(dynPrice, maxByBonus);
     }
 
@@ -407,6 +422,9 @@ function computePortfolioState({
   const investorNetPerDay = rows.reduce((s, r) => s + r.netPerDayFinal, 0);
   const feeTotal = rows.reduce((s, r) => s + r.fee, 0);
   const grossProfitTotal = rows.reduce((s, r) => s + r.gross, 0);
+  const baselineNet = rows.reduce((s, r) => s + r.netNoBoost, 0);
+  const baselineNetPerDay = rows.reduce((s, r) => s + r.netNoBoostPerDay, 0);
+  const capital = rows.reduce((s, r) => s + r.amount, 0);
 
   let accCostApplied = 0;
   for (const b of chosenAcc) {
@@ -486,7 +504,10 @@ function computePortfolioState({
       subCost,
       investorNet,
       investorNetPerDay,
-      projectRevenue
+      projectRevenue,
+      baselineNet,
+      baselineNetPerDay,
+      capital
     },
     projection30,
     boosterSummary: {
@@ -560,7 +581,7 @@ function runSelfTests() {
   const priceBlocked = smartPriceBoostersDyn(blockedBooster, INIT_TARIFFS, elite, 10, bigPort)[0].price;
   console.assert(priceBlocked < pricedBig, 'when big plan is blocked, price should drop');
 
-  const generousBonus = { ...DEFAULT_PRICING, investorBonusPct: 200 };
+  const generousBonus = { ...DEFAULT_PRICING, investorRoiFloorPct: 200 };
   const pricedWithBonus = smartPriceBoostersDyn(
     testBooster,
     INIT_TARIFFS,
@@ -569,7 +590,64 @@ function runSelfTests() {
     bigPort,
     generousBonus
   )[0].price;
-  console.assert(pricedWithBonus <= pricedBig, 'higher investor bonus should not raise price');
+  console.assert(pricedWithBonus <= pricedBig, 'stricter ROI floor should not raise price');
+}
+
+function evaluateBoosterAgainstPortfolio({
+  booster,
+  portfolio,
+  tariffs,
+  sub
+}: {
+  booster: Booster;
+  portfolio: PortfolioItem[];
+  tariffs: Tariff[];
+  sub: Subscription;
+}): BoosterImpact {
+  const totalCapital = portfolio.reduce((sum, item) => sum + Math.max(0, Number(item.amount) || 0), 0);
+  let netGain = 0;
+  let netPerDay = 0;
+  let coverageDeposits = 0;
+  const affectedTariffs = new Set<string>();
+
+  for (const item of portfolio) {
+    const tariff = tariffs.find((t) => t.id === item.tariffId);
+    if (!tariff) continue;
+    if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
+
+    const amount = Math.max(0, Number(item.amount) || 0);
+    const hours = tariff.durationDays * 24;
+    const coverage = Math.min(booster.durationHours, hours) / hours;
+    const effect = booster.effect?.value ?? 0;
+
+    if (effect <= 0 || coverage <= 0) continue;
+
+    const grossGain = amount * tariff.dailyRate * tariff.durationDays * (effect * coverage);
+    const net = grossGain * (1 - sub.fee);
+    if (net <= 0) continue;
+
+    netGain += net;
+    netPerDay += net / tariff.durationDays;
+    coverageDeposits += amount;
+    affectedTariffs.add(tariff.id);
+  }
+
+  const netAfterCost = netGain - booster.price;
+  const roi = booster.price > 0 ? (netAfterCost / booster.price) : null;
+  const paybackDays = netPerDay > 0 ? booster.price / netPerDay : null;
+  const coverageShare = totalCapital > 0 ? coverageDeposits / totalCapital : 0;
+
+  return {
+    booster,
+    netGain,
+    netPerDay,
+    netAfterCost,
+    roi,
+    paybackDays,
+    coverageDeposits,
+    coverageShare,
+    affectedTariffs: affectedTariffs.size
+  };
 }
 
 function uid(prefix: string) {
@@ -636,6 +714,21 @@ export default function ArbPlanBuilder() {
       withinLevel(userLevel, b.minLevel) &&
       subMeets(b.reqSub, activeSubId)
   );
+
+  const boosterInsights = useMemo(() => {
+    return availableAccountBoosters.map((booster) =>
+      evaluateBoosterAgainstPortfolio({
+        booster,
+        portfolio,
+        tariffs,
+        sub: activeSub
+      })
+    );
+  }, [availableAccountBoosters, portfolio, tariffs, activeSub]);
+
+  const boosterImpactMap = useMemo(() => {
+    return new Map(boosterInsights.map((impact) => [impact.booster.id, impact]));
+  }, [boosterInsights]);
 
   const tariffSlotsUsed = useMemo(() => {
     const map = new Map<string, number>();
@@ -710,9 +803,9 @@ export default function ArbPlanBuilder() {
       <header className="card" style={{ display: 'grid', gap: 16 }}>
         <div className="flex-between">
           <div>
-            <h1 style={{ margin: 0, fontSize: 28 }}>Arb Plan Builder v3.4 — canvas edition</h1>
+            <h1 style={{ margin: 0, fontSize: 28 }}>Arb Plan Builder v3.5 — canvas edition</h1>
             <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>
-              ROI-aware booster pricing • whale-aware dynamic markups • simulation lab for investor cohorts
+              Белый минималистичный дашборд • гибкие ROI-пороги бустеров • симуляция по сегментам инвесторов
             </p>
           </div>
           <button className="ghost" onClick={() => setSettingsOpen((v) => !v)}>
@@ -796,6 +889,7 @@ export default function ArbPlanBuilder() {
 
       {activeTab === 'planner' ? (
         <>
+          <PlannerStats computed={computed} currency={currency} />
           <div className="card" style={{ display: 'grid', gap: 16 }}>
             <div className="flex-between">
               <h2 className="section-title">Бустеры на аккаунт</h2>
@@ -803,34 +897,92 @@ export default function ArbPlanBuilder() {
                 Цена автоматически растёт при увеличении покрытия портфеля. Заблокированные тарифы не участвуют в расчётах выгоды.
               </p>
             </div>
-            <div className="flex">
+            <div className="booster-select">
               {availableAccountBoosters.length === 0 && (
                 <span className="section-subtitle">Нет доступных бустеров на вашем уровне / подписке.</span>
               )}
-              {availableAccountBoosters.map((b) => (
-                <label
-                  key={b.id}
-                  className="chip"
-                  style={{
-                    background: activeGlobal.has(b.id) ? '#dbeafe' : '#e2e8f0'
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={activeGlobal.has(b.id)}
-                    onChange={() => toggleAccountBooster(b.id)}
-                  />
-                  <span>{b.name}</span>
-                  <span className="badge">{b.durationHours}h</span>
-                  <span className="badge">{fmtMoney(b.price, currency)}</span>
-                  {Array.isArray(b.blockedTariffs) && b.blockedTariffs.length > 0 && (
-                    <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
-                      blocked: {b.blockedTariffs.length}
-                    </span>
-                  )}
-                </label>
-              ))}
+              {availableAccountBoosters.map((b) => {
+                const insight = boosterImpactMap.get(b.id);
+                return (
+                  <label
+                    key={b.id}
+                    className={`booster-pill ${
+                      activeGlobal.has(b.id) ? 'active' : ''
+                    } ${insight && insight.roi != null && insight.roi < 0 ? 'risk' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={activeGlobal.has(b.id)}
+                      onChange={() => toggleAccountBooster(b.id)}
+                    />
+                    <div className="pill-header">
+                      <span>{b.name}</span>
+                      <strong>{fmtMoney(b.price, currency)}</strong>
+                    </div>
+                    <div className="pill-meta">
+                      <span>{b.durationHours}ч</span>
+                      {insight && insight.roi != null && (
+                        <span>
+                          ROI{' '}
+                          {insight.roi != null ? `${(insight.roi * 100).toFixed(0)}%` : '—'}
+                        </span>
+                      )}
+                      {insight && insight.coverageShare > 0 && (
+                        <span>Покрытие {(insight.coverageShare * 100).toFixed(0)}%</span>
+                      )}
+                      {Array.isArray(b.blockedTariffs) && b.blockedTariffs.length > 0 && (
+                        <span>−{b.blockedTariffs.length} тарифов</span>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
             </div>
+            {boosterInsights.length > 0 && (
+              <div className="table-wrapper booster-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Бустер</th>
+                      <th>Цена</th>
+                      <th>Чистая выгода (после цены)</th>
+                      <th>ROI</th>
+                      <th>Окупаемость</th>
+                      <th>Покрытие портфеля</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {boosterInsights.map((insight) => (
+                      <tr key={insight.booster.id}>
+                        <td>{insight.booster.name}</td>
+                        <td>{fmtMoney(insight.booster.price, currency)}</td>
+                        <td title={`Без учёта цены: ${fmtMoney(insight.netGain, currency)}`}>
+                          {fmtMoney(insight.netAfterCost, currency)}
+                        </td>
+                        <td>
+                          {insight.roi != null
+                            ? `${(insight.roi * 100).toFixed(1)}%`
+                            : '—'}
+                        </td>
+                        <td>
+                          {insight.paybackDays != null
+                            ? `${insight.paybackDays.toFixed(1)} дн.`
+                            : '—'}
+                        </td>
+                        <td>
+                          {insight.coverageShare > 0
+                            ? `${(insight.coverageShare * 100).toFixed(0)}% • ${fmtMoney(
+                                insight.coverageDeposits,
+                                currency
+                              )}`
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-3" style={{ gridTemplateColumns: '2fr 1fr', gap: 16 }}>
@@ -890,6 +1042,10 @@ export default function ArbPlanBuilder() {
                 <div className="flex-between">
                   <span>Покупки бустеров:</span>
                   <span>{fmtMoney(computed.totals.accountCost, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Инвестору без бустеров:</span>
+                  <span>{fmtMoney(computed.totals.baselineNet, currency)}</span>
                 </div>
                 <div className="flex-between">
                   <span>Лифт от бустеров (после оплаты):</span>
@@ -1028,8 +1184,76 @@ export default function ArbPlanBuilder() {
       )}
 
       <footer style={{ textAlign: 'center', fontSize: 12, color: '#64748b', paddingBottom: 24 }}>
-        v3.4 • динамическая цена бустеров учитывает объём портфеля • новая лаборатория потоков инвесторов
+        v3.5 • минималистичный белый интерфейс • гибкий ROI-контроль бустеров • расширенная аналитика портфеля
       </footer>
+    </div>
+  );
+}
+
+type PlannerStatsProps = {
+  computed: ComputedState;
+  currency: string;
+};
+
+function PlannerStats({ computed, currency }: PlannerStatsProps) {
+  const { totals, boosterSummary } = computed;
+  const avgDailyYield = totals.capital > 0 ? totals.investorNetPerDay / totals.capital : 0;
+  const boosterShare = totals.baselineNet > 0 ? boosterSummary.liftNet / totals.baselineNet : 0;
+
+  const cards = [
+    {
+      label: 'Капитал в работе',
+      value: fmtMoney(totals.capital, currency),
+      hint: 'Сумма активных депозитов'
+    },
+    {
+      label: 'Чистая прибыль без бустеров',
+      value: fmtMoney(totals.baselineNet, currency),
+      hint: `${fmtMoney(totals.baselineNetPerDay, currency)} в день`
+    },
+    {
+      label: 'Чистая прибыль с бустерами',
+      value: fmtMoney(totals.investorNet, currency),
+      hint: `${fmtMoney(totals.investorNetPerDay, currency)} в день`
+    },
+    {
+      label: 'Среднесуточная доходность',
+      value: totals.capital > 0 ? `${(avgDailyYield * 100).toFixed(2)}%` : '—',
+      hint: 'На основе чистой прибыли'
+    },
+    {
+      label: 'Лифт от бустеров',
+      value: fmtMoney(boosterSummary.liftNet, currency),
+      hint: boosterSummary.liftNet > 0 ? `+${(boosterShare * 100).toFixed(1)}% к базе` : 'Без прироста'
+    },
+    {
+      label: 'Доход проекта',
+      value: fmtMoney(totals.projectRevenue, currency),
+      hint: 'Комиссии + бустеры + подписка'
+    }
+  ];
+
+  return (
+    <div className="stats-grid">
+      {cards.map((card) => (
+        <StatTile key={card.label} label={card.label} value={card.value} hint={card.hint} />
+      ))}
+    </div>
+  );
+}
+
+type StatTileProps = {
+  label: string;
+  value: string;
+  hint: string;
+};
+
+function StatTile({ label, value, hint }: StatTileProps) {
+  return (
+    <div className="stat-card">
+      <span className="stat-label">{label}</span>
+      <span className="stat-value">{value}</span>
+      <span className="stat-hint">{hint}</span>
     </div>
   );
 }
@@ -1268,13 +1492,13 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
           />
         </label>
         <label>
-          <span className="section-subtitle">Бонус инвестору (ROI от цены, %)</span>
+          <span className="section-subtitle">Минимальный бонус инвестору (ROI от цены, %)</span>
           <input
             type="number"
             min={0}
             max={500}
-            value={pricing.investorBonusPct}
-            onChange={(e) => update('investorBonusPct', Number(e.target.value))}
+            value={pricing.investorRoiFloorPct}
+            onChange={(e) => update('investorRoiFloorPct', Number(e.target.value))}
           />
         </label>
         <label>
@@ -1299,7 +1523,8 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
         </label>
       </div>
       <div className="section-subtitle" style={{ color: '#1e293b' }}>
-        При бонусе 100% инвестор получит +100% прибыли к цене бустера (например, купил за $100 → минимум $200 чистой выгоды).
+        Значение 100% гарантирует, что инвестор заработает не меньше цены бустера сверху. Можно
+        увеличивать параметр для щедрых промо или снижать для агрессивной монетизации.
       </div>
     </div>
   );
