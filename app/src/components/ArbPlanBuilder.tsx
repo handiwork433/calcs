@@ -192,6 +192,18 @@ type ProgramDesignControls = {
   bufferMultiple: number;
 };
 
+type ScenarioProfile = {
+  label: string;
+  optimism: number;
+  acquisitionMultiplier: number;
+  expansionRate: number;
+  topUpGrowth: number;
+  churnProbability: number;
+  reinvestShare: number;
+  marketingCostPerInvestor: number;
+  rampCompression: number;
+};
+
 type InvestorSegment = {
   id: string;
   name: string;
@@ -314,6 +326,58 @@ function clamp(n: number, a: number, b: number) {
 
 function boosterCoverageMultiplier(value: number, coverageFrac: number) {
   return 1 + value * clamp(coverageFrac, 0, 1);
+}
+
+const SCENARIO_WORST: ScenarioProfile = {
+  label: 'Кризисный',
+  optimism: 0,
+  acquisitionMultiplier: 0.45,
+  expansionRate: 0.01,
+  topUpGrowth: -0.35,
+  churnProbability: 0.08,
+  reinvestShare: 0.12,
+  marketingCostPerInvestor: 38,
+  rampCompression: 1.15
+};
+
+const SCENARIO_BEST: ScenarioProfile = {
+  label: 'Агрессивный рост',
+  optimism: 1,
+  acquisitionMultiplier: 1.6,
+  expansionRate: 0.18,
+  topUpGrowth: 0.85,
+  churnProbability: 0.012,
+  reinvestShare: 0.6,
+  marketingCostPerInvestor: 14,
+  rampCompression: 0.65
+};
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function blendScenario(bias: number): ScenarioProfile {
+  const t = clamp(bias, 0, 100) / 100;
+  const profile: ScenarioProfile = {
+    label: t < 0.33 ? 'Кризисный' : t > 0.66 ? 'Агрессивный рост' : 'Сбалансированный',
+    optimism: t,
+    acquisitionMultiplier: lerp(
+      SCENARIO_WORST.acquisitionMultiplier,
+      SCENARIO_BEST.acquisitionMultiplier,
+      t
+    ),
+    expansionRate: lerp(SCENARIO_WORST.expansionRate, SCENARIO_BEST.expansionRate, t),
+    topUpGrowth: lerp(SCENARIO_WORST.topUpGrowth, SCENARIO_BEST.topUpGrowth, t),
+    churnProbability: lerp(SCENARIO_WORST.churnProbability, SCENARIO_BEST.churnProbability, t),
+    reinvestShare: lerp(SCENARIO_WORST.reinvestShare, SCENARIO_BEST.reinvestShare, t),
+    marketingCostPerInvestor: lerp(
+      SCENARIO_WORST.marketingCostPerInvestor,
+      SCENARIO_BEST.marketingCostPerInvestor,
+      t
+    ),
+    rampCompression: lerp(SCENARIO_WORST.rampCompression, SCENARIO_BEST.rampCompression, t)
+  };
+  return profile;
 }
 
 function formatHours(hours: number) {
@@ -1877,58 +1941,69 @@ export default function ArbPlanBuilder() {
                           : 'Тарифы с требованиями'}
                       </div>
                     )}
-                    <div className="card" style={{ padding: 16 }}>
-                      <div style={{ fontWeight: 600 }}>{t.name}</div>
-                      <div className="section-subtitle">
-                        {(t.dailyRate * 100).toFixed(2)}%/d • {t.durationDays}d
+                    <div
+                      className={`tariff-card ${locked ? 'tariff-card--locked' : ''}`}
+                    >
+                      <div className="tariff-card-head">
+                        <span className="tariff-icon" aria-hidden>
+                          {t.category === 'program' ? '💎' : '📈'}
+                        </span>
+                        <div>
+                          <div className="tariff-title">{t.name}</div>
+                          <div className="section-subtitle">
+                            {(t.dailyRate * 100).toFixed(2)}%/d • {t.durationDays}d
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex">
+                      <div className="tariff-tags">
                         <span className="badge">{t.category === 'program' ? 'Программа' : 'Тариф'}</span>
                         {t.access === 'open' ? (
-                          <span className="badge" style={{ background: '#dcfce7', color: '#166534' }}>
-                            Без уровня
-                          </span>
+                          <span className="badge badge-soft">Без уровня</span>
                         ) : (
                           <span className="badge">Lv ≥ {t.minLevel}</span>
                         )}
                         {t.reqSub && <span className="badge">Req: {t.reqSub}</span>}
-                        <span
-                          className="badge"
-                          style={
-                            t.payoutMode === 'locked'
-                              ? { background: '#fef3c7', color: '#92400e' }
-                              : { background: '#dcfce7', color: '#166534' }
-                          }
-                        >
+                        <span className={`badge ${t.payoutMode === 'locked' ? 'badge-warm' : 'badge-cool'}`}>
                           {t.payoutMode === 'locked' ? 'Выплата в конце' : 'Ежедневно'}
                         </span>
                         {t.isLimited && (
-                          <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
-                            Слотов: {left}
-                          </span>
+                          <span className="badge badge-warn">Слотов: {left}</span>
                         )}
                       </div>
-                      <div className="section-subtitle">
-                        Депозит: {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
+                      <div className="tariff-meta">
+                        <div>
+                          <span className="section-subtitle">Диапазон</span>
+                          <strong>{fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}</strong>
+                        </div>
+                        {t.entryFee > 0 && (
+                          <div>
+                            <span className="section-subtitle">Входной взнос</span>
+                            <strong>{fmtMoney(t.entryFee, currency)}</strong>
+                          </div>
+                        )}
+                        {t.entryFee > 0 && (
+                          <div>
+                            <span className="section-subtitle">Безубыточность</span>
+                            <strong>
+                              {breakeven && Number.isFinite(breakeven)
+                                ? fmtMoney(breakeven, currency)
+                                : '—'}
+                            </strong>
+                          </div>
+                        )}
+                        {recommended && (
+                          <div>
+                            <span className="section-subtitle">Рекомендовано</span>
+                            <strong>{fmtMoney(recommended, currency)}</strong>
+                          </div>
+                        )}
                       </div>
-                      {t.entryFee > 0 && (
-                        <div className="section-subtitle" style={{ color: '#b91c1c' }}>
-                          Входной взнос: {fmtMoney(t.entryFee, currency)}
-                        </div>
-                      )}
-                      {t.entryFee > 0 && (
-                        <div className="section-subtitle" style={{ color: '#0f172a' }}>
-                          Безубыточность ≈{' '}
-                          {breakeven && Number.isFinite(breakeven) ? fmtMoney(breakeven, currency) : '—'} • Рекомендация:{' '}
-                          {recommended ? fmtMoney(recommended, currency) : fmtMoney(t.baseMin, currency)}
-                        </div>
-                      )}
                       {t.entryFee > 0 && insight && (
                         <div
                           className="section-subtitle"
                           style={{ color: premiumMet ? '#166534' : '#b45309' }}
                         >
-                          Премия к {competitorName}: {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)}).
+                          Премия vs {competitorName}: {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)}).
                           {entryFeeGap != null && (
                             <> Δвход: {entryFeeGap >= 0 ? '+' : ''}{fmtMoney(entryFeeGap, currency)}</>
                           )}
@@ -1940,12 +2015,12 @@ export default function ArbPlanBuilder() {
                         </div>
                       )}
                       <button
-                        className="primary"
-                        style={{ width: '100%' }}
+                        className="tariff-cta"
                         onClick={() => addTariff(t.id)}
                         disabled={(left !== null && left === 0) || locked}
                       >
-                        Добавить в портфель
+                        <span>{locked ? 'Недоступно' : 'Добавить в портфель'}</span>
+                        <span aria-hidden>{locked ? '🔒' : '➕'}</span>
                       </button>
                     </div>
                   </React.Fragment>
@@ -2956,9 +3031,16 @@ type MmmModel = {
   reserveAfterFees: number;
   startReserve: number;
   projectTake: number;
+  netProjectTake: number;
   dailyOutflowFirst: number;
   totalTopUps: number;
   totalDeposits: number;
+  newInvestorDeposits: number;
+  reinvestDeposits: number;
+  marketingSpend: number;
+  newInvestorsTotal: number;
+  avgDailyNewInvestors: number;
+  scenario: ScenarioProfile;
 };
 
 function SimulationPanel({
@@ -2970,6 +3052,9 @@ function SimulationPanel({
   pricing,
   programControls
 }: SimulationPanelProps) {
+  const [scenarioBias, setScenarioBias] = useState(55);
+  const scenarioProfile = useMemo(() => blendScenario(scenarioBias), [scenarioBias]);
+
   const addSegment = () => {
     setSegments([
       ...segments,
@@ -3182,6 +3267,7 @@ function SimulationPanel({
     if (segmentSummaries.length === 0) return null;
 
     type PlanInstance = {
+      segmentId: string;
       daysRemaining: number;
       principal: number;
       dailyPayout: number;
@@ -3190,28 +3276,55 @@ function SimulationPanel({
 
     const planQueue: PlanInstance[] = [];
     const segmentStates = segmentSummaries.map(({ segment, computed, depositPerInvestor, planRows }) => {
-      const rampDays = Math.max(1, segment.rampDays || 1);
+      const baseRamp = Math.max(1, segment.rampDays || 1);
+      const rampDays = Math.max(1, Math.round(baseRamp * scenarioProfile.rampCompression));
+      const investorsPerDay = rampDays > 0 ? segment.investors / rampDays : segment.investors;
       return {
         segment,
         computed,
         depositPerInvestor,
         planRows,
         rampDays,
-        investorsPerDay: segment.investors / rampDays,
-        onboarded: 0
+        investorsPerDay,
+        onboarded: 0,
+        activeInvestors: 0
       };
     });
+
+    const stateMap = new Map(segmentStates.map((state) => [state.segment.id, state]));
+
+    const schedulePlans = (state: typeof segmentStates[number], investorEquivalent: number) => {
+      if (!Number.isFinite(investorEquivalent) || investorEquivalent <= 0) return;
+      state.planRows.forEach((row) => {
+        planQueue.push({
+          segmentId: state.segment.id,
+          daysRemaining: row.t.durationDays,
+          principal: row.amount * investorEquivalent,
+          dailyPayout:
+            row.t.payoutMode === 'locked' ? 0 : row.netPerDayFinal * investorEquivalent,
+          maturityPayout:
+            row.t.payoutMode === 'locked' ? row.netFinal * investorEquivalent : 0
+        });
+      });
+    };
+
+    const onboardInvestors = (state: typeof segmentStates[number], investorCount: number) => {
+      if (!Number.isFinite(investorCount) || investorCount <= 0) return 0;
+      schedulePlans(state, investorCount);
+      return state.depositPerInvestor * investorCount;
+    };
 
     let maxDuration = 0;
     let maxRamp = 0;
     segmentSummaries.forEach(({ segment, planRows }) => {
-      maxRamp = Math.max(maxRamp, Math.max(1, segment.rampDays || 1));
+      const rampDays = Math.max(1, Math.round((segment.rampDays || 1) * scenarioProfile.rampCompression));
+      maxRamp = Math.max(maxRamp, rampDays);
       planRows.forEach((row) => {
         maxDuration = Math.max(maxDuration, row.t.durationDays);
       });
     });
 
-    const horizon = Math.max(30, maxDuration + maxRamp + 30);
+    const horizon = Math.max(60, Math.round(maxDuration + maxRamp + 120));
     const timeline: { day: number; reserve: number }[] = [{ day: 0, reserve: 0 }];
     let reserve = 0;
     let collapseDay: number | null = null;
@@ -3219,51 +3332,71 @@ function SimulationPanel({
     let totalDeposits = 0;
     let totalTopUps = 0;
     let projectTake = 0;
+    let marketingSpend = 0;
+    let newInvestorDeposits = 0;
+    let reinvestDeposits = 0;
+    let newInvestorsTotal = 0;
 
     for (let day = 1; day <= horizon; day++) {
       let dayProjectTake = 0;
       let dayOutflow = 0;
       let maturityOutflow = 0;
       let dayInflow = 0;
+      let dayMarketing = 0;
 
       segmentStates.forEach((state) => {
-        const remaining = state.segment.investors - state.onboarded;
+        const remaining = Math.max(0, state.segment.investors - state.onboarded);
         let newInvestors = 0;
-        if (day <= state.rampDays && remaining > 0) {
-          const planned = state.investorsPerDay;
-          newInvestors =
-            day === state.rampDays ? remaining : Math.min(remaining, planned);
-          state.onboarded += newInvestors;
-          const deposit = state.depositPerInvestor * newInvestors;
-          dayInflow += deposit;
-          totalDeposits += deposit;
 
-          state.planRows.forEach((row) => {
-            planQueue.push({
-              daysRemaining: row.t.durationDays,
-              principal: row.amount * newInvestors,
-              dailyPayout:
-                row.t.payoutMode === 'locked'
-                  ? 0
-                  : row.netPerDayFinal * newInvestors,
-              maturityPayout:
-                row.t.payoutMode === 'locked' ? row.netFinal * newInvestors : 0
-            });
-          });
+        if (remaining > 0) {
+          if (day <= state.rampDays) {
+            const planned = state.investorsPerDay * scenarioProfile.acquisitionMultiplier;
+            newInvestors = day === state.rampDays ? remaining : Math.min(remaining, planned);
+          } else {
+            const catchUp = Math.min(remaining, state.investorsPerDay);
+            if (catchUp > 0) newInvestors += catchUp;
+          }
         }
 
-        const activeInvestors = state.onboarded;
-        if (activeInvestors > 0) {
-          const topUp = state.segment.dailyTopUpPerInvestor * activeInvestors;
+        const expansionBase = Math.max(state.activeInvestors, state.onboarded);
+        if (expansionBase > 0 && scenarioProfile.expansionRate > 0) {
+          newInvestors += expansionBase * scenarioProfile.expansionRate;
+        }
+
+        if (newInvestors > 0) {
+          state.onboarded += newInvestors;
+          state.activeInvestors += newInvestors;
+          newInvestorsTotal += newInvestors;
+          const marketing = newInvestors * scenarioProfile.marketingCostPerInvestor;
+          if (marketing > 0) {
+            dayMarketing += marketing;
+          }
+          const deposit = onboardInvestors(state, newInvestors);
+          if (deposit > 0) {
+            dayInflow += deposit;
+            totalDeposits += deposit;
+            newInvestorDeposits += deposit;
+          }
+        }
+
+        const effectiveInvestors = Math.max(0, state.activeInvestors);
+        if (effectiveInvestors > 0) {
+          const topUpMultiplier = Math.max(0, 1 + scenarioProfile.topUpGrowth);
+          const topUp = state.segment.dailyTopUpPerInvestor * effectiveInvestors * topUpMultiplier;
           if (topUp > 0) {
             dayInflow += topUp;
             totalTopUps += topUp;
           }
 
-          const revenue = state.computed.totals.projectRevenuePerDay * activeInvestors;
+          const revenue = state.computed.totals.projectRevenuePerDay * effectiveInvestors;
           if (revenue > 0) {
             dayProjectTake += revenue;
           }
+        }
+
+        if (state.activeInvestors > 0 && scenarioProfile.churnProbability > 0) {
+          const churned = state.activeInvestors * scenarioProfile.churnProbability;
+          state.activeInvestors = Math.max(0, state.activeInvestors - churned);
         }
       });
 
@@ -3274,6 +3407,11 @@ function SimulationPanel({
         projectTake += dayProjectTake;
       }
 
+      if (dayMarketing > 0) {
+        reserve -= dayMarketing;
+        marketingSpend += dayMarketing;
+      }
+
       for (let i = 0; i < planQueue.length; ) {
         const plan = planQueue[i];
         if (plan.daysRemaining > 0) {
@@ -3282,7 +3420,21 @@ function SimulationPanel({
           }
           plan.daysRemaining -= 1;
           if (plan.daysRemaining === 0) {
-            maturityOutflow += plan.principal + plan.maturityPayout;
+            const maturedTotal = plan.principal + plan.maturityPayout;
+            maturityOutflow += maturedTotal;
+            if (scenarioProfile.reinvestShare > 0 && maturedTotal > 0) {
+              const reinvestAmount = maturedTotal * scenarioProfile.reinvestShare;
+              const ownerState = stateMap.get(plan.segmentId);
+              if (ownerState && reinvestAmount > 0 && ownerState.depositPerInvestor > 0) {
+                const investorEquivalent = reinvestAmount / ownerState.depositPerInvestor;
+                if (investorEquivalent > 0) {
+                  schedulePlans(ownerState, investorEquivalent);
+                  dayInflow += reinvestAmount;
+                  totalDeposits += reinvestAmount;
+                  reinvestDeposits += reinvestAmount;
+                }
+              }
+            }
             planQueue.splice(i, 1);
             continue;
           }
@@ -3293,8 +3445,9 @@ function SimulationPanel({
       reserve -= dayOutflow;
       reserve -= maturityOutflow;
 
+      const totalDayCost = dayOutflow + maturityOutflow + dayProjectTake + dayMarketing;
       if (day === 1) {
-        dailyOutflowFirst = dayOutflow + maturityOutflow + dayProjectTake;
+        dailyOutflowFirst = totalDayCost;
       }
 
       timeline.push({ day, reserve });
@@ -3309,19 +3462,28 @@ function SimulationPanel({
       timeline.push({ day: horizon, reserve });
     }
 
-    const reserveAfterFees = Math.max(0, totalDeposits + totalTopUps - projectTake);
+    const reserveAfterFees = Math.max(0, reserve);
+    const daysSimulated = timeline[timeline.length - 1]?.day ?? horizon;
+    const avgDailyNewInvestors = daysSimulated > 0 ? newInvestorsTotal / daysSimulated : 0;
 
     return {
       timeline,
       collapseDay,
       reserveAfterFees,
-      startReserve: totalDeposits,
+      startReserve: newInvestorDeposits,
       projectTake,
+      netProjectTake: Math.max(0, projectTake - marketingSpend),
       dailyOutflowFirst,
       totalTopUps,
-      totalDeposits
+      totalDeposits,
+      newInvestorDeposits,
+      reinvestDeposits,
+      marketingSpend,
+      newInvestorsTotal,
+      avgDailyNewInvestors,
+      scenario: scenarioProfile
     };
-  }, [segmentSummaries]);
+  }, [segmentSummaries, scenarioProfile]);
 
   return (
     <div className="card" style={{ display: 'grid', gap: 20 }}>
@@ -3337,7 +3499,54 @@ function SimulationPanel({
         </button>
       </div>
 
+      <div className="scenario-strip">
+        <div>
+          <h3 className="section-title" style={{ marginBottom: 4 }}>Сценарий рынка</h3>
+          <p className="section-subtitle" style={{ maxWidth: 520 }}>
+            Потяните ползунок от кризисного сценария к агрессивному росту, чтобы учесть динамику рекламы, расширение географии и повторные депозиты.
+          </p>
+        </div>
+        <div className="scenario-slider">
+          <span role="img" aria-label="worst">
+            😰
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={scenarioBias}
+            onChange={(e) => setScenarioBias(Number(e.target.value))}
+          />
+          <span role="img" aria-label="best">
+            🚀
+          </span>
+        </div>
+        <div className="scenario-meta">
+          <div>
+            <span className="section-subtitle">Текущий сценарий</span>
+            <strong>{scenarioProfile.label}</strong>
+          </div>
+          <div>
+            <span className="section-subtitle">Оптимизм</span>
+            <strong>{Math.round(scenarioProfile.optimism * 100)}%</strong>
+          </div>
+          <div>
+            <span className="section-subtitle">Маркетинг / инвестор</span>
+            <strong>{fmtMoney(scenarioProfile.marketingCostPerInvestor, currency)}</strong>
+          </div>
+          <div>
+            <span className="section-subtitle">Повторный депозит, % выплат</span>
+            <strong>{Math.round(scenarioProfile.reinvestShare * 100)}%</strong>
+          </div>
+        </div>
+      </div>
+
       <div className="sim-summary">
+        <div className="sim-summary-card accent">
+          <h4>Сценарий</h4>
+          <p>{scenarioProfile.label}</p>
+          <span className="muted">Оптимизм {Math.round(scenarioProfile.optimism * 100)}%</span>
+        </div>
         <div className="sim-summary-card">
           <h4>Инвесторов</h4>
           <p>{totals.investorsTotal}</p>
@@ -3417,6 +3626,22 @@ function SimulationPanel({
               ? describePayback(boosterPaybackTotal, totals.boosterActiveHoursTotal)
               : '—'}
           </p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Маркетинг (30d)</h4>
+          <p>{mmmModel ? fmtMoney(mmmModel.marketingSpend, currency) : '—'}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Повторные депозиты</h4>
+          <p>{mmmModel ? fmtMoney(mmmModel.reinvestDeposits, currency) : '—'}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Новые инвесторы/день</h4>
+          <p>{mmmModel ? mmmModel.avgDailyNewInvestors.toFixed(1) : '—'}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Доход проекта (после маркетинга)</h4>
+          <p>{mmmModel ? fmtMoney(mmmModel.netProjectTake, currency) : '—'}</p>
         </div>
         <div className="sim-summary-card">
           <h4>MMM выживаемость</h4>
@@ -3746,6 +3971,12 @@ function MmmChart({ model, currency }: MmmChartProps) {
     reserveAfterFees,
     startReserve,
     projectTake,
+    netProjectTake,
+    marketingSpend,
+    reinvestDeposits,
+    newInvestorDeposits,
+    newInvestorsTotal,
+    scenario,
     dailyOutflowFirst,
     totalTopUps
   } = model;
@@ -3776,7 +4007,7 @@ function MmmChart({ model, currency }: MmmChartProps) {
         <div>
           <h3 className="section-title">MMM прогноз выживаемости</h3>
           <p className="section-subtitle">
-            Без новых вкладов схема выплачивает текущие обязательства до исчерпания накопленного резерва.
+            Сценарий: {scenario.label} • оптимизм {Math.round(scenario.optimism * 100)}% • повторные вклады {Math.round(scenario.reinvestShare * 100)}%.
           </p>
         </div>
         <span className="section-subtitle">{collapseLabel}</span>
@@ -3809,8 +4040,24 @@ function MmmChart({ model, currency }: MmmChartProps) {
           <p>{fmtMoney(projectTake, currency)}</p>
         </div>
         <div className="sim-summary-card">
+          <h4>Чистый доход проекта</h4>
+          <p>{fmtMoney(netProjectTake, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Маркетинг</h4>
+          <p>{fmtMoney(marketingSpend, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
           <h4>Пополнения</h4>
           <p>{fmtMoney(totalTopUps, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Новые депозиты</h4>
+          <p>{fmtMoney(newInvestorDeposits, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Повторные депозиты</h4>
+          <p>{fmtMoney(reinvestDeposits, currency)}</p>
         </div>
         <div className="sim-summary-card">
           <h4>Платёж в 1-й день</h4>
@@ -3819,6 +4066,10 @@ function MmmChart({ model, currency }: MmmChartProps) {
         <div className="sim-summary-card">
           <h4>Горизонт модели</h4>
           <p>{lastDay} дн.</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Новых инвесторов</h4>
+          <p>{newInvestorsTotal.toFixed(0)}</p>
         </div>
       </div>
     </div>
