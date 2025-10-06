@@ -37,6 +37,7 @@ After the dependencies are installed, start the development server with `npm run
 - Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
 - Expanded tariff catalogue with level-gated plans and open-access programmes that can be launched without level requirements
+- Yield bands on every tariff/programme with editable min/max/base rates; planner surfaces the spread while the scenario slider biases calculations within the band
 - Programme entry fees with automatic break-even analytics, recommended deposit hints and amortised accounting in portfolio stats
 - Programme premium controls to enforce relative/absolute lift versus free tariffs, compute recommended deposits and cap entry fees while tracking portfolio-level premium health
 - Editors for quickly prototyping new tariffs (with slot limits, category/access toggles) and boosters (with block lists)
