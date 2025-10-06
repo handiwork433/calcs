@@ -38,6 +38,7 @@ type TariffSeed = Omit<
   rate: number;
   rateRange?: [number, number];
   rateTarget?: number;
+  bandTightness?: number;
 };
 
 type Booster = {
@@ -67,6 +68,8 @@ type PortfolioRow = {
   notes: string[];
   applicable: Booster[];
   dailyGross: number;
+  dailyGrossMin: number;
+  dailyGrossMax: number;
   feePerDay: number;
   gross: number;
   fee: number;
@@ -78,6 +81,10 @@ type PortfolioRow = {
   netAfter: number;
   netPerDayFinal: number;
   netFinal: number;
+  netPerDayFinalMin: number;
+  netPerDayFinalMax: number;
+  netFinalMin: number;
+  netFinalMax: number;
   lockedNet: number;
   lockedNetPerDay: number;
   netNoBoost: number;
@@ -122,6 +129,10 @@ type Totals = {
   subCost: number;
   investorNet: number;
   investorNetPerDay: number;
+  investorNetMin: number;
+  investorNetMax: number;
+  investorNetPerDayMin: number;
+  investorNetPerDayMax: number;
   projectRevenue: number;
   baselineNet: number;
   baselineNetPerDay: number;
@@ -227,18 +238,26 @@ type InvestorSegment = {
   dailyTopUpPerInvestor: number;
 };
 
-const DEFAULT_RATE_SPREAD = 0.35;
+const DEFAULT_RATE_SPREAD = 0.22;
+const DEFAULT_RATE_COMPRESSION = 0.5;
 
 function createTariff(seed: TariffSeed): Tariff {
-  const { rate, rateRange, rateTarget, ...rest } = seed;
-  const [minRate, maxRate] =
+  const { rate, rateRange, rateTarget, bandTightness, ...rest } = seed;
+  const [minRateRaw, maxRateRaw] =
     rateRange ?? [rate * (1 - DEFAULT_RATE_SPREAD), rate * (1 + DEFAULT_RATE_SPREAD)];
+  const baseMin = Math.min(minRateRaw, maxRateRaw);
+  const baseMax = Math.max(minRateRaw, maxRateRaw);
   const target = rateTarget ?? rate;
+  const tighten = clamp(bandTightness ?? DEFAULT_RATE_COMPRESSION, 0.1, 1);
+  const halfWidth = ((baseMax - baseMin) * tighten) / 2;
+  const centre = clamp(target, baseMin, baseMax);
+  const minRate = clamp(centre - halfWidth, baseMin, centre);
+  const maxRate = clamp(centre + halfWidth, centre, baseMax);
   return {
     ...rest,
-    dailyRateMin: Math.min(minRate, maxRate),
-    dailyRateMax: Math.max(minRate, maxRate),
-    dailyRateTarget: target,
+    dailyRateMin: minRate,
+    dailyRateMax: maxRate,
+    dailyRateTarget: clamp(target, minRate, maxRate)
   };
 }
 
@@ -393,6 +412,10 @@ const SCENARIO_BEST: ScenarioProfile = {
   marketingCostPerInvestor: 14,
   rampCompression: 0.65
 };
+
+const MMM_MAX_DAYS = 240;
+const MMM_MAX_QUEUE = 15000;
+const MMM_MAX_DAILY_PROCESSED = 5000;
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
@@ -769,7 +792,23 @@ function computePortfolioState({
         programFeePerDay,
         recommendedPrincipal:
           programInsight?.recommendedPrincipal ?? t.recommendedPrincipal ?? null
-      } as Omit<PortfolioRow, 'accAlloc' | 'accPerDay' | 'subAlloc' | 'subPerDay' | 'netPerDayAfter' | 'netAfter' | 'netPerDayFinal' | 'netFinal'> & {
+      } as Omit<
+        PortfolioRow,
+        | 'accAlloc'
+        | 'accPerDay'
+        | 'subAlloc'
+        | 'subPerDay'
+        | 'netPerDayAfter'
+        | 'netAfter'
+        | 'netPerDayFinal'
+        | 'netFinal'
+        | 'netPerDayFinalMin'
+        | 'netPerDayFinalMax'
+        | 'netFinalMin'
+        | 'netFinalMax'
+        | 'dailyGrossMin'
+        | 'dailyGrossMax'
+      > & {
         applicable: Booster[];
       };
     })
@@ -790,6 +829,8 @@ function computePortfolioState({
     const boosterNetById: Record<string, number> = r.boosterNetById || {};
     let accAlloc = 0;
     const boosterDetails: PortfolioRow['boosterDetails'] = {};
+    const rateMin = tariffRateMin(r.t);
+    const rateMax = tariffRateMax(r.t);
     for (const b of r.applicable) {
       const denom = denomByBooster.get(b.id) || 0;
       const share = denom ? (r.amount * r.t.durationDays) / denom : 0;
@@ -815,6 +856,14 @@ function computePortfolioState({
 
     const netPerDayBeforeSub = r.dailyGross - r.feePerDay - accPerDay - programFeePerDay;
     const netBeforeSub = r.gross - r.fee - accAlloc - programFee;
+    const dailyGrossMin = r.amount * rateMin * r.multiplier;
+    const dailyGrossMax = r.amount * rateMax * r.multiplier;
+    const feePerDayMin = dailyGrossMin * feeRate;
+    const feePerDayMax = dailyGrossMax * feeRate;
+    const grossMin = dailyGrossMin * r.t.durationDays;
+    const grossMax = dailyGrossMax * r.t.durationDays;
+    const feeMin = feePerDayMin * r.t.durationDays;
+    const feeMax = feePerDayMax * r.t.durationDays;
 
     const subShare = capDaysAll ? (r.amount * r.t.durationDays) / capDaysAll : 0;
     const subAlloc = subCost * subShare;
@@ -827,6 +876,14 @@ function computePortfolioState({
     const lockedPerDayBeforeSub = isLocked ? netPerDayBeforeSub : 0;
     const netPerDayFinal = unlockedPerDayBeforeSub - subPerDay;
     const netFinal = netBeforeSub - subAlloc;
+    const netPerDayBeforeSubMin = dailyGrossMin - feePerDayMin - accPerDay - programFeePerDay;
+    const netPerDayBeforeSubMax = dailyGrossMax - feePerDayMax - accPerDay - programFeePerDay;
+    const netBeforeSubMin = grossMin - feeMin - accAlloc - programFee;
+    const netBeforeSubMax = grossMax - feeMax - accAlloc - programFee;
+    const netPerDayFinalMin = netPerDayBeforeSubMin - subPerDay;
+    const netPerDayFinalMax = netPerDayBeforeSubMax - subPerDay;
+    const netFinalMin = netBeforeSubMin - subAlloc;
+    const netFinalMax = netBeforeSubMax - subAlloc;
     const lockedNet = isLocked ? netFinal : 0;
 
     const baseNetFactor = tariffRate(r.t, optimism) * r.t.durationDays * (1 - feeRate);
@@ -853,16 +910,26 @@ function computePortfolioState({
       netAfter: netBeforeSub,
       netPerDayFinal,
       netFinal,
+      netPerDayFinalMin,
+      netPerDayFinalMax,
+      netFinalMin,
+      netFinalMax,
       lockedNet,
       lockedNetPerDay: lockedPerDayBeforeSub,
       boosterLift,
       boosterLiftPerDay,
-      boosterDetails
+      boosterDetails,
+      dailyGrossMin,
+      dailyGrossMax
     };
   });
 
   const investorNet = rows.reduce((s, r) => s + r.netFinal, 0);
   const investorNetPerDay = rows.reduce((s, r) => s + r.netPerDayFinal, 0);
+  const investorNetMin = rows.reduce((s, r) => s + r.netFinalMin, 0);
+  const investorNetMax = rows.reduce((s, r) => s + r.netFinalMax, 0);
+  const investorNetPerDayMin = rows.reduce((s, r) => s + r.netPerDayFinalMin, 0);
+  const investorNetPerDayMax = rows.reduce((s, r) => s + r.netPerDayFinalMax, 0);
   const investorNetBeforeSub = rows.reduce((s, r) => s + r.netAfter, 0);
   const investorNetPerDayBeforeSub = rows.reduce((s, r) => s + r.netPerDayAfter, 0);
   const feeTotal = rows.reduce((s, r) => s + r.fee, 0);
@@ -994,6 +1061,10 @@ function computePortfolioState({
       subCost,
       investorNet,
       investorNetPerDay,
+      investorNetMin,
+      investorNetMax,
+      investorNetPerDayMin,
+      investorNetPerDayMax,
       projectRevenue,
       baselineNet,
       baselineNetPerDay,
@@ -1210,6 +1281,24 @@ function runSelfTests() {
     'locked per-day accrual mirrors base net'
   );
   console.assert(lockedRow.netPerDayFinal <= 0, 'locked plan cashflow per day excludes accrual');
+
+  const rangeState = computePortfolioState({
+    portfolio: [{ id: 'rng', tariffId: 't_weekly_a', amount: 500 }],
+    boosters: [],
+    accountBoosters: [],
+    tariffs: INIT_TARIFFS,
+    activeSubId: 'free',
+    userLevel: 5,
+    programControls: DEFAULT_PROGRAM_CONTROLS
+  });
+  console.assert(
+    rangeState.totals.investorNetMin <= rangeState.totals.investorNetMax + 1e-6,
+    'min payout should not exceed max payout'
+  );
+  console.assert(
+    rangeState.totals.investorNetPerDayMin <= rangeState.totals.investorNetPerDayMax + 1e-9,
+    'min daily payout should not exceed max daily payout'
+  );
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -1824,6 +1913,21 @@ export default function ArbPlanBuilder() {
                   <span>{fmtMoney(computed.totals.investorNetBeforeSub, currency)}</span>
                 </div>
                 <div className="flex-between">
+                  <span>Инвестору (минимум):</span>
+                  <span>{fmtMoney(computed.totals.investorNetMin, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Инвестору (максимум):</span>
+                  <span>{fmtMoney(computed.totals.investorNetMax, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Поток/день (мин–макс):</span>
+                  <span>
+                    {fmtMoney(computed.totals.investorNetPerDayMin, currency)} –{' '}
+                    {fmtMoney(computed.totals.investorNetPerDayMax, currency)}
+                  </span>
+                </div>
+                <div className="flex-between">
                   <span>Лифт от бустеров (после оплаты):</span>
                   <span>{fmtMoney(computed.boosterSummary.liftNet, currency)}</span>
                 </div>
@@ -2144,6 +2248,16 @@ function PlannerStats({ computed, currency }: PlannerStatsProps) {
       hint: `${fmtMoney(totals.investorNetPerDay, currency)} в день`
     },
     {
+      label: 'Чистая прибыль (диапазон)',
+      value: `${fmtMoney(totals.investorNetMin, currency)} – ${fmtMoney(totals.investorNetMax, currency)}`,
+      hint: 'Минимальный и максимальный сценарии с учётом диапазона доходности'
+    },
+    {
+      label: 'Поток в день (диапазон)',
+      value: `${fmtMoney(totals.investorNetPerDayMin, currency)} – ${fmtMoney(totals.investorNetPerDayMax, currency)}`,
+      hint: 'Коридор по дневным выплатам после подписки'
+    },
+    {
       label: 'Среднесуточная доходность',
       value: totals.capital > 0 ? `${(avgDailyYield * 100).toFixed(2)}%` : '—',
       hint: 'На основе чистой прибыли'
@@ -2401,9 +2515,13 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
   const netBeforeBoosters = rowData?.netNoBoost ?? 0;
   const netWithBoosters = rowData?.netAfter ?? netBeforeBoosters;
   const netFinal = rowData?.netFinal ?? netWithBoosters;
+  const netFinalMin = rowData?.netFinalMin ?? netFinal;
+  const netFinalMax = rowData?.netFinalMax ?? netFinal;
   const payoutMode = rowData?.t?.payoutMode ?? 'stream';
   const netPerDayAccrual = rowData?.netPerDayAfter ?? (rowData?.netNoBoostPerDay ?? 0);
   const netPerDayFinal = rowData?.netPerDayFinal ?? netPerDayAccrual;
+  const netPerDayFinalMin = rowData?.netPerDayFinalMin ?? netPerDayFinal;
+  const netPerDayFinalMax = rowData?.netPerDayFinalMax ?? netPerDayFinal;
   const lockedNet = rowData?.lockedNet ?? 0;
   const lockedNetPerDay = rowData?.lockedNetPerDay ?? 0;
   const boosterLift = rowData?.boosterLift ?? 0;
@@ -2477,6 +2595,18 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
           </span>
           <span>
             Финал с подпиской: <strong>{fmtMoney(netFinal, currency)}</strong>
+          </span>
+          <span>
+            Финал (мин–макс):{' '}
+            <strong>
+              {fmtMoney(netFinalMin, currency)} – {fmtMoney(netFinalMax, currency)}
+            </strong>
+          </span>
+          <span>
+            Поток/день (мин–макс):{' '}
+            <strong>
+              {fmtMoney(netPerDayFinalMin, currency)} – {fmtMoney(netPerDayFinalMax, currency)}
+            </strong>
           </span>
           <span>
             Прирост/день: <strong>{fmtMoney(boosterLiftPerDay, currency)}</strong>
@@ -3136,6 +3266,8 @@ type MmmModel = {
   newInvestorsTotal: number;
   avgDailyNewInvestors: number;
   scenario: ScenarioProfile;
+  truncated: boolean;
+  abortReason: 'queue' | 'processing' | 'horizon' | null;
 };
 
 function SimulationPanel({
@@ -3277,6 +3409,10 @@ function SimulationPanel({
     let depositTotal = 0;
     let investorNetTotal = 0;
     let investorNetPerDayTotal = 0;
+    let investorNetMinTotal = 0;
+    let investorNetMaxTotal = 0;
+    let investorNetPerDayMinTotal = 0;
+    let investorNetPerDayMaxTotal = 0;
     let investorNetPerDayBeforeSubTotal = 0;
     let projectRevenueTotal = 0;
     let projectRevenuePerDayTotal = 0;
@@ -3302,6 +3438,10 @@ function SimulationPanel({
       depositTotal += depositPerInvestor * segment.investors;
       investorNetTotal += computed.totals.investorNet * segment.investors;
       investorNetPerDayTotal += computed.totals.investorNetPerDay * segment.investors;
+      investorNetMinTotal += computed.totals.investorNetMin * segment.investors;
+      investorNetMaxTotal += computed.totals.investorNetMax * segment.investors;
+      investorNetPerDayMinTotal += computed.totals.investorNetPerDayMin * segment.investors;
+      investorNetPerDayMaxTotal += computed.totals.investorNetPerDayMax * segment.investors;
       investorNetPerDayBeforeSubTotal += computed.totals.investorNetPerDayBeforeSub * segment.investors;
       projectRevenueTotal += computed.totals.projectRevenue * segment.investors;
       projectRevenuePerDayTotal += computed.totals.projectRevenuePerDay * segment.investors;
@@ -3329,6 +3469,10 @@ function SimulationPanel({
       depositTotal,
       investorNetTotal,
       investorNetPerDayTotal,
+      investorNetMinTotal,
+      investorNetMaxTotal,
+      investorNetPerDayMinTotal,
+      investorNetPerDayMaxTotal,
       investorNetPerDayBeforeSubTotal,
       projectRevenueTotal,
       projectRevenuePerDayTotal,
@@ -3420,7 +3564,10 @@ function SimulationPanel({
       });
     });
 
-    const horizon = Math.max(60, Math.round(maxDuration + maxRamp + 120));
+    const horizon = Math.min(
+      MMM_MAX_DAYS,
+      Math.max(60, Math.round(maxDuration + maxRamp + 120))
+    );
     const timeline: { day: number; reserve: number }[] = [{ day: 0, reserve: 0 }];
     let reserve = 0;
     let collapseDay: number | null = null;
@@ -3433,12 +3580,15 @@ function SimulationPanel({
     let reinvestDeposits = 0;
     let newInvestorsTotal = 0;
 
+    let aborted = false;
+    let abortReason: 'queue' | 'processing' | null = null;
     for (let day = 1; day <= horizon; day++) {
       let dayProjectTake = 0;
       let dayOutflow = 0;
       let maturityOutflow = 0;
       let dayInflow = 0;
       let dayMarketing = 0;
+      let processedToday = 0;
 
       segmentStates.forEach((state) => {
         const remaining = Math.max(0, state.segment.investors - state.onboarded);
@@ -3496,6 +3646,17 @@ function SimulationPanel({
         }
       });
 
+      if (planQueue.length > MMM_MAX_QUEUE) {
+        aborted = true;
+        if (!abortReason) abortReason = 'queue';
+      }
+
+      if (aborted) {
+        collapseDay = day;
+        timeline.push({ day, reserve });
+        break;
+      }
+
       reserve += dayInflow;
 
       if (dayProjectTake > 0) {
@@ -3535,7 +3696,19 @@ function SimulationPanel({
             continue;
           }
         }
+        processedToday += 1;
+        if (processedToday > MMM_MAX_DAILY_PROCESSED) {
+          aborted = true;
+          if (!abortReason) abortReason = 'processing';
+          break;
+        }
         i += 1;
+      }
+
+      if (aborted) {
+        collapseDay = day;
+        timeline.push({ day, reserve });
+        break;
       }
 
       reserve -= dayOutflow;
@@ -3562,6 +3735,9 @@ function SimulationPanel({
     const daysSimulated = timeline[timeline.length - 1]?.day ?? horizon;
     const avgDailyNewInvestors = daysSimulated > 0 ? newInvestorsTotal / daysSimulated : 0;
 
+    const truncated = aborted || horizon >= MMM_MAX_DAYS;
+    const finalReason = abortReason ?? (horizon >= MMM_MAX_DAYS ? 'horizon' : null);
+
     return {
       timeline,
       collapseDay,
@@ -3577,7 +3753,9 @@ function SimulationPanel({
       marketingSpend,
       newInvestorsTotal,
       avgDailyNewInvestors,
-      scenario: scenarioProfile
+      scenario: scenarioProfile,
+      truncated,
+      abortReason: finalReason
     };
   }, [segmentSummaries, scenarioProfile]);
 
@@ -3684,6 +3862,19 @@ function SimulationPanel({
           <p>{fmtMoney(totals.unlockedNetPerDayTotal, currency)}</p>
         </div>
         <div className="sim-summary-card">
+          <h4>Чистая прибыль (мин–макс)</h4>
+          <p>
+            {fmtMoney(totals.investorNetMinTotal, currency)} – {fmtMoney(totals.investorNetMaxTotal, currency)}
+          </p>
+          <span className="muted">с учётом диапазона доходности</span>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Поток/день (мин–макс)</h4>
+          <p>
+            {fmtMoney(totals.investorNetPerDayMinTotal, currency)} – {fmtMoney(totals.investorNetPerDayMaxTotal, currency)}
+          </p>
+        </div>
+        <div className="sim-summary-card">
           <h4>Пополнения/день</h4>
           <p>{fmtMoney(totals.topUpPerDayTotal, currency)}</p>
         </div>
@@ -3748,6 +3939,9 @@ function SimulationPanel({
                 : '30+ дн.'
               : '—'}
           </p>
+          {mmmModel && mmmModel.truncated && (
+            <span className="muted">Расчёт остановлен защитой модели</span>
+          )}
         </div>
         <div className="sim-summary-card">
           <h4>Резерв после комиссий</h4>
@@ -4100,6 +4294,13 @@ function MmmChart({ model, currency }: MmmChartProps) {
   const collapseLabel = collapseDay != null
     ? `Резерв иссякнет через ≈ ${collapseDay} дн.`
     : 'Резерва хватает на горизонте модели';
+  const guardNote = model.truncated
+    ? model.abortReason === 'queue'
+      ? ' • расчёт остановлен: очередь выплат стала слишком большой'
+      : model.abortReason === 'processing'
+        ? ' • расчёт остановлен: ограничение на количество выплат в день'
+        : ' • достигнут предел горизонта моделирования'
+    : '';
 
   return (
     <div className="card" style={{ display: 'grid', gap: 16 }}>
@@ -4107,7 +4308,7 @@ function MmmChart({ model, currency }: MmmChartProps) {
         <div>
           <h3 className="section-title">MMM прогноз выживаемости</h3>
           <p className="section-subtitle">
-            Сценарий: {scenario.label} • оптимизм {Math.round(scenario.optimism * 100)}% • повторные вклады {Math.round(scenario.reinvestShare * 100)}%.
+            Сценарий: {scenario.label} • оптимизм {Math.round(scenario.optimism * 100)}% • повторные вклады {Math.round(scenario.reinvestShare * 100)}%{guardNote}.
           </p>
         </div>
         <span className="section-subtitle">{collapseLabel}</span>
