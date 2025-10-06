@@ -99,20 +99,24 @@ type ComputedState = {
   };
   boosterSummary: {
     liftNet: number;
-    liftPerDay: number;
+    liftPerPlanDay: number;
+    liftPerActiveHour: number;
     spend: number;
     roi: number;
-    paybackDays: number | null;
+    paybackHours: number | null;
+    activeHours: number;
+    netBeforeCost: number;
   };
 };
 
 type BoosterImpact = {
   booster: Booster;
   netGain: number;
-  netPerDay: number;
+  netPerActiveHour: number;
+  netAfterCostPerHour: number;
   netAfterCost: number;
   roi: number | null;
-  paybackDays: number | null;
+  paybackHours: number | null;
   coverageDeposits: number;
   coverageShare: number;
   affectedTariffs: number;
@@ -216,6 +220,23 @@ function clamp(n: number, a: number, b: number) {
 
 function boosterCoverageMultiplier(value: number, coverageFrac: number) {
   return 1 + value * clamp(coverageFrac, 0, 1);
+}
+
+function formatHours(hours: number) {
+  if (!Number.isFinite(hours)) return '—';
+  if (hours <= 0) return '0 ч';
+  if (hours < 1) return `${Math.round(hours * 60)} мин`;
+  if (hours >= 48) return `${(hours / 24).toFixed(1)} дн.`;
+  return `${hours.toFixed(1)} ч`;
+}
+
+function describePayback(hours: number | null, activeHours?: number) {
+  if (hours == null || !Number.isFinite(hours) || hours === Infinity) return 'не окупается';
+  const label = formatHours(hours);
+  if (activeHours != null && activeHours > 0 && hours - activeHours > 1e-6) {
+    return `${label} (дольше срока ${formatHours(activeHours)})`;
+  }
+  return label;
 }
 
 const DEFAULT_PRICING: PricingControls = {
@@ -324,6 +345,7 @@ function computePortfolioState({
   const chosenAcc = accountBoosters
     .map((id) => boosters.find((b) => b.id === id))
     .filter(Boolean) as Booster[];
+  const boosterNetGain = new Map<string, number>();
 
   const rowsBase = portfolio
     .map((item) => {
@@ -342,6 +364,10 @@ function computePortfolioState({
         const mul = boosterCoverageMultiplier(b.effect.value, cov);
         multiplier *= mul;
         notes.push(`${b.name}: ×${mul.toFixed(3)} (cov ${(cov * 100).toFixed(0)}%)`);
+
+        const gainGross = amount * t.dailyRate * t.durationDays * (b.effect.value * cov);
+        const gainNet = gainGross * (1 - feeRate);
+        boosterNetGain.set(b.id, (boosterNetGain.get(b.id) || 0) + gainNet);
       }
 
       const dailyGross = amount * t.dailyRate * multiplier;
@@ -426,18 +452,25 @@ function computePortfolioState({
   const baselineNetPerDay = rows.reduce((s, r) => s + r.netNoBoostPerDay, 0);
   const capital = rows.reduce((s, r) => s + r.amount, 0);
 
-  let accCostApplied = 0;
-  for (const b of chosenAcc) {
-    const denom = denomByBooster.get(b.id) || 0;
-    if (denom > 0) accCostApplied += b.price || 0;
-  }
+  const appliedBoosters = chosenAcc.filter((b) => (denomByBooster.get(b.id) || 0) > 0);
+  const accCostApplied = appliedBoosters.reduce((sum, b) => sum + (b.price || 0), 0);
 
   const projectRevenue = feeTotal + accCostApplied + subCost;
 
   const liftNet = rows.reduce((s, r) => s + r.boosterLift, 0);
-  const liftPerDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
+  const liftPerPlanDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
+  const boosterActiveHoursTotal = appliedBoosters.reduce((sum, b) => sum + b.durationHours, 0);
+  const boosterNetBeforeCost = appliedBoosters.reduce(
+    (sum, b) => sum + (boosterNetGain.get(b.id) || 0),
+    0
+  );
+  const boosterNetPerActiveHourBeforeCost =
+    boosterActiveHoursTotal > 0 ? boosterNetBeforeCost / boosterActiveHoursTotal : 0;
+  const liftPerActiveHour =
+    boosterActiveHoursTotal > 0 ? liftNet / boosterActiveHoursTotal : 0;
   const roi = accCostApplied > 0 ? liftNet / accCostApplied : 0;
-  const paybackDays = liftPerDay > 0 ? accCostApplied / liftPerDay : null;
+  const paybackHours =
+    boosterNetPerActiveHourBeforeCost > 0 ? accCostApplied / boosterNetPerActiveHourBeforeCost : null;
 
   const project30 = (subId: string, mode: 'no-reinvest' | 'auto-roll') => {
     const sub = SUBSCRIPTIONS.find((s) => s.id === subId)!;
@@ -512,10 +545,13 @@ function computePortfolioState({
     projection30,
     boosterSummary: {
       liftNet,
-      liftPerDay,
+      liftPerPlanDay,
+      liftPerActiveHour,
       spend: accCostApplied,
       roi,
-      paybackDays
+      paybackHours,
+      activeHours: boosterActiveHoursTotal,
+      netBeforeCost: boosterNetBeforeCost
     }
   };
 }
@@ -591,6 +627,11 @@ function runSelfTests() {
     generousBonus
   )[0].price;
   console.assert(pricedWithBonus <= pricedBig, 'stricter ROI floor should not raise price');
+
+  const paybackShort = describePayback(12, 24);
+  console.assert(paybackShort.includes('12') || paybackShort.includes('дн'), 'payback should render horizon');
+  const paybackLong = describePayback(48, 24);
+  console.assert(paybackLong.includes('дольше срока'), 'payback should note when horizon exceeds duration');
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -606,7 +647,6 @@ function evaluateBoosterAgainstPortfolio({
 }): BoosterImpact {
   const totalCapital = portfolio.reduce((sum, item) => sum + Math.max(0, Number(item.amount) || 0), 0);
   let netGain = 0;
-  let netPerDay = 0;
   let coverageDeposits = 0;
   const affectedTariffs = new Set<string>();
 
@@ -627,23 +667,26 @@ function evaluateBoosterAgainstPortfolio({
     if (net <= 0) continue;
 
     netGain += net;
-    netPerDay += net / tariff.durationDays;
     coverageDeposits += amount;
     affectedTariffs.add(tariff.id);
   }
 
   const netAfterCost = netGain - booster.price;
   const roi = booster.price > 0 ? (netAfterCost / booster.price) : null;
-  const paybackDays = netPerDay > 0 ? booster.price / netPerDay : null;
+  const activeHours = booster.durationHours;
+  const netPerActiveHour = activeHours > 0 ? netGain / activeHours : 0;
+  const netAfterCostPerHour = activeHours > 0 ? netAfterCost / activeHours : 0;
+  const paybackHours = netPerActiveHour > 0 ? booster.price / netPerActiveHour : null;
   const coverageShare = totalCapital > 0 ? coverageDeposits / totalCapital : 0;
 
   return {
     booster,
     netGain,
-    netPerDay,
+    netPerActiveHour,
+    netAfterCostPerHour,
     netAfterCost,
     roi,
-    paybackDays,
+    paybackHours,
     coverageDeposits,
     coverageShare,
     affectedTariffs: affectedTariffs.size
@@ -803,9 +846,10 @@ export default function ArbPlanBuilder() {
       <header className="card" style={{ display: 'grid', gap: 16 }}>
         <div className="flex-between">
           <div>
-            <h1 style={{ margin: 0, fontSize: 28 }}>Arb Plan Builder v3.5 — canvas edition</h1>
+            <h1 style={{ margin: 0, fontSize: 28 }}>Arb Plan Builder v3.6 — canvas edition</h1>
             <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>
-              Белый минималистичный дашборд • гибкие ROI-пороги бустеров • симуляция по сегментам инвесторов
+              Белый минималистичный дашборд • гибкие ROI-пороги бустеров с сохранением настроек • метрики окупаемости с учётом
+              срока действия
             </p>
           </div>
           <button className="ghost" onClick={() => setSettingsOpen((v) => !v)}>
@@ -927,6 +971,9 @@ export default function ArbPlanBuilder() {
                           {insight.roi != null ? `${(insight.roi * 100).toFixed(0)}%` : '—'}
                         </span>
                       )}
+                      {insight && insight.paybackHours != null && (
+                        <span>Payback {describePayback(insight.paybackHours, b.durationHours)}</span>
+                      )}
                       {insight && insight.coverageShare > 0 && (
                         <span>Покрытие {(insight.coverageShare * 100).toFixed(0)}%</span>
                       )}
@@ -946,8 +993,10 @@ export default function ArbPlanBuilder() {
                       <th>Бустер</th>
                       <th>Цена</th>
                       <th>Чистая выгода (после цены)</th>
+                      <th>Лифт/час</th>
                       <th>ROI</th>
                       <th>Окупаемость</th>
+                      <th>Активные часы</th>
                       <th>Покрытие портфеля</th>
                     </tr>
                   </thead>
@@ -959,16 +1008,14 @@ export default function ArbPlanBuilder() {
                         <td title={`Без учёта цены: ${fmtMoney(insight.netGain, currency)}`}>
                           {fmtMoney(insight.netAfterCost, currency)}
                         </td>
+                        <td>{fmtMoney(insight.netAfterCostPerHour, currency)}</td>
                         <td>
                           {insight.roi != null
                             ? `${(insight.roi * 100).toFixed(1)}%`
                             : '—'}
                         </td>
-                        <td>
-                          {insight.paybackDays != null
-                            ? `${insight.paybackDays.toFixed(1)} дн.`
-                            : '—'}
-                        </td>
+                        <td>{describePayback(insight.paybackHours, insight.booster.durationHours)}</td>
+                        <td>{formatHours(insight.booster.durationHours)}</td>
                         <td>
                           {insight.coverageShare > 0
                             ? `${(insight.coverageShare * 100).toFixed(0)}% • ${fmtMoney(
@@ -1052,8 +1099,24 @@ export default function ArbPlanBuilder() {
                   <span>{fmtMoney(computed.boosterSummary.liftNet, currency)}</span>
                 </div>
                 <div className="flex-between">
-                  <span>Лифт в день:</span>
-                  <span>{fmtMoney(computed.boosterSummary.liftPerDay, currency)}</span>
+                  <span>Лифт в день (усреднено по тарифам):</span>
+                  <span>{fmtMoney(computed.boosterSummary.liftPerPlanDay, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Лифт за активный час:</span>
+                  <span>{fmtMoney(computed.boosterSummary.liftPerActiveHour, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Активные часы бустеров:</span>
+                  <span>
+                    {computed.boosterSummary.activeHours > 0
+                      ? formatHours(computed.boosterSummary.activeHours)
+                      : '—'}
+                  </span>
+                </div>
+                <div className="flex-between">
+                  <span>Бонус до оплаты бустеров:</span>
+                  <span>{fmtMoney(computed.boosterSummary.netBeforeCost, currency)}</span>
                 </div>
                 <div className="flex-between">
                   <span>ROI бустеров:</span>
@@ -1066,8 +1129,11 @@ export default function ArbPlanBuilder() {
                 <div className="flex-between">
                   <span>Окупаемость бустеров:</span>
                   <span>
-                    {computed.boosterSummary.paybackDays != null
-                      ? `${computed.boosterSummary.paybackDays.toFixed(1)} дн.`
+                    {computed.boosterSummary.spend > 0
+                      ? describePayback(
+                          computed.boosterSummary.paybackHours,
+                          computed.boosterSummary.activeHours
+                        )
                       : '—'}
                   </span>
                 </div>
@@ -1184,7 +1250,7 @@ export default function ArbPlanBuilder() {
       )}
 
       <footer style={{ textAlign: 'center', fontSize: 12, color: '#64748b', paddingBottom: 24 }}>
-        v3.5 • минималистичный белый интерфейс • гибкий ROI-контроль бустеров • расширенная аналитика портфеля
+        v3.6 • минималистичный белый интерфейс • гибкий ROI-контроль бустеров • тайминги окупаемости и сохранение настроек
       </footer>
     </div>
   );
@@ -1390,7 +1456,10 @@ function RowPreview({ item, currency, tariffs, boosters, accountBoosters, active
     const denom = t.dailyRate * t.durationDays * (b.effect.value * cov) * (1 - feeRate);
     const beAmount = denom > 0 ? b.price / denom : Infinity;
     const roi = gainNet - b.price;
-    return { id: b.id, name: b.name, roi, beAmount };
+    const activeHours = Math.min(b.durationHours, totalHours);
+    const netPerActiveHour = activeHours > 0 ? gainNet / activeHours : 0;
+    const paybackHours = netPerActiveHour > 0 ? b.price / netPerActiveHour : null;
+    return { id: b.id, name: b.name, roi, beAmount, paybackHours, durationHours: b.durationHours };
   });
 
   return (
@@ -1442,7 +1511,8 @@ function RowPreview({ item, currency, tariffs, boosters, accountBoosters, active
                 </span>
               ) : (
                 <span>
-                  ✅ {w.name}: ROI+ ≈ {fmtMoney(w.roi, currency)} при {fmtMoney(amount, currency)}.
+                  ✅ {w.name}: ROI+ ≈ {fmtMoney(w.roi, currency)} при {fmtMoney(amount, currency)} •
+                  окупаемость ≈ {describePayback(w.paybackHours, w.durationHours)}.
                 </span>
               )}
             </div>
@@ -1464,8 +1534,18 @@ type PricingEditorProps = {
 };
 
 function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
+  const [draft, setDraft] = useState<PricingControls>(pricing);
+
+  useEffect(() => {
+    setDraft(pricing);
+  }, [pricing]);
+
   const update = <K extends keyof PricingControls>(field: K, value: PricingControls[K]) => {
-    setPricing({ ...pricing, [field]: value });
+    setDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const save = () => {
+    setPricing(draft);
   };
 
   return (
@@ -1477,7 +1557,7 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
             type="number"
             min={0}
             max={100}
-            value={pricing.baseCapturePct}
+            value={draft.baseCapturePct}
             onChange={(e) => update('baseCapturePct', Number(e.target.value))}
           />
         </label>
@@ -1487,7 +1567,7 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
             type="number"
             min={0}
             max={100}
-            value={pricing.whaleCapturePct}
+            value={draft.whaleCapturePct}
             onChange={(e) => update('whaleCapturePct', Number(e.target.value))}
           />
         </label>
@@ -1497,7 +1577,7 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
             type="number"
             min={0}
             max={500}
-            value={pricing.investorRoiFloorPct}
+            value={draft.investorRoiFloorPct}
             onChange={(e) => update('investorRoiFloorPct', Number(e.target.value))}
           />
         </label>
@@ -1507,7 +1587,7 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
             type="number"
             min={0}
             step={0.1}
-            value={pricing.minPrice}
+            value={draft.minPrice}
             onChange={(e) => update('minPrice', Number(e.target.value))}
           />
         </label>
@@ -1515,9 +1595,9 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
           <span className="section-subtitle">Макс. цена бустера</span>
           <input
             type="number"
-            min={pricing.minPrice}
+            min={draft.minPrice}
             step={1}
-            value={pricing.maxPrice}
+            value={draft.maxPrice}
             onChange={(e) => update('maxPrice', Number(e.target.value))}
           />
         </label>
@@ -1525,6 +1605,14 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
       <div className="section-subtitle" style={{ color: '#1e293b' }}>
         Значение 100% гарантирует, что инвестор заработает не меньше цены бустера сверху. Можно
         увеличивать параметр для щедрых промо или снижать для агрессивной монетизации.
+      </div>
+      <div className="flex" style={{ justifyContent: 'flex-end', gap: 8 }}>
+        <button className="ghost" onClick={() => setDraft(pricing)}>
+          Отменить
+        </button>
+        <button className="primary" onClick={save}>
+          Сохранить
+        </button>
       </div>
     </div>
   );
@@ -1982,7 +2070,10 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
     let grossTotal = 0;
     let feeTotal = 0;
     let boosterLiftTotal = 0;
-    let boosterLiftPerDayTotal = 0;
+    let boosterLiftPerPlanDayTotal = 0;
+    let boosterLiftPerActiveHourTotal = 0;
+    let boosterActiveHoursTotal = 0;
+    let boosterNetBeforeCostTotal = 0;
 
     segmentSummaries.forEach(({ segment, computed, depositPerInvestor }) => {
       investorsTotal += segment.investors;
@@ -1993,8 +2084,12 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
       subscriptionRevenueTotal += computed.totals.subCost * segment.investors;
       grossTotal += computed.totals.grossProfitTotal * segment.investors;
       feeTotal += computed.totals.feeTotal * segment.investors;
-      boosterLiftTotal += computed.boosterSummary.liftNet * segment.investors;
-      boosterLiftPerDayTotal += computed.boosterSummary.liftPerDay * segment.investors;
+      const multiplier = segment.investors;
+      boosterLiftTotal += computed.boosterSummary.liftNet * multiplier;
+      boosterLiftPerPlanDayTotal += computed.boosterSummary.liftPerPlanDay * multiplier;
+      boosterLiftPerActiveHourTotal += computed.boosterSummary.liftPerActiveHour * multiplier;
+      boosterActiveHoursTotal += computed.boosterSummary.activeHours * multiplier;
+      boosterNetBeforeCostTotal += computed.boosterSummary.netBeforeCost * multiplier;
     });
 
     return {
@@ -2007,13 +2102,19 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
       grossTotal,
       feeTotal,
       boosterLiftTotal,
-      boosterLiftPerDayTotal
+      boosterLiftPerPlanDayTotal,
+      boosterLiftPerActiveHourTotal,
+      boosterActiveHoursTotal,
+      boosterNetBeforeCostTotal
     };
   }, [segmentSummaries]);
 
   const boosterRoiTotal = totals.boosterRevenueTotal > 0 ? totals.boosterLiftTotal / totals.boosterRevenueTotal : 0;
-  const boosterPaybackTotal = totals.boosterLiftPerDayTotal > 0
-    ? totals.boosterRevenueTotal / totals.boosterLiftPerDayTotal
+  const netPerActiveHourBeforeCostTotal = totals.boosterActiveHoursTotal > 0
+    ? totals.boosterNetBeforeCostTotal / totals.boosterActiveHoursTotal
+    : 0;
+  const boosterPaybackTotal = netPerActiveHourBeforeCostTotal > 0
+    ? totals.boosterRevenueTotal / netPerActiveHourBeforeCostTotal
     : null;
 
   return (
@@ -2060,6 +2161,22 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
           <p>{fmtMoney(totals.boosterLiftTotal, currency)}</p>
         </div>
         <div className="sim-summary-card">
+          <h4>Лифт в день</h4>
+          <p>{fmtMoney(totals.boosterLiftPerPlanDayTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Лифт / активный час</h4>
+          <p>{fmtMoney(totals.boosterLiftPerActiveHourTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Активные часы</h4>
+          <p>{totals.boosterActiveHoursTotal > 0 ? formatHours(totals.boosterActiveHoursTotal) : '—'}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Бонус до цены</h4>
+          <p>{fmtMoney(totals.boosterNetBeforeCostTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
           <h4>ROI бустеров</h4>
           <p>
             {totals.boosterRevenueTotal > 0
@@ -2069,7 +2186,11 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
         </div>
         <div className="sim-summary-card">
           <h4>Окупаемость бустеров</h4>
-          <p>{boosterPaybackTotal != null ? `${boosterPaybackTotal.toFixed(1)} дн.` : '—'}</p>
+          <p>
+            {totals.boosterRevenueTotal > 0
+              ? describePayback(boosterPaybackTotal, totals.boosterActiveHoursTotal)
+              : '—'}
+          </p>
         </div>
       </div>
 
@@ -2237,8 +2358,31 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
                     </tr>
                     <tr>
                       <td>Лифт в день</td>
-                      <td>{fmtMoney(computed.boosterSummary.liftPerDay, currency)}</td>
-                      <td>{fmtMoney(computed.boosterSummary.liftPerDay * segment.investors, currency)}</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftPerPlanDay, currency)}</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftPerPlanDay * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Лифт / активный час</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftPerActiveHour, currency)}</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftPerActiveHour * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Активные часы бустеров</td>
+                      <td>
+                        {computed.boosterSummary.activeHours > 0
+                          ? formatHours(computed.boosterSummary.activeHours)
+                          : '—'}
+                      </td>
+                      <td>
+                        {computed.boosterSummary.activeHours > 0
+                          ? formatHours(computed.boosterSummary.activeHours * segment.investors)
+                          : '—'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Бонус до оплаты бустеров</td>
+                      <td>{fmtMoney(computed.boosterSummary.netBeforeCost, currency)}</td>
+                      <td>{fmtMoney(computed.boosterSummary.netBeforeCost * segment.investors, currency)}</td>
                     </tr>
                     <tr>
                       <td>ROI бустеров</td>
@@ -2256,13 +2400,19 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
                     <tr>
                       <td>Окупаемость бустеров</td>
                       <td>
-                        {computed.boosterSummary.paybackDays != null
-                          ? `${computed.boosterSummary.paybackDays.toFixed(1)} дн.`
+                        {computed.boosterSummary.spend > 0
+                          ? describePayback(
+                              computed.boosterSummary.paybackHours,
+                              computed.boosterSummary.activeHours
+                            )
                           : '—'}
                       </td>
                       <td>
-                        {computed.boosterSummary.paybackDays != null
-                          ? `${computed.boosterSummary.paybackDays.toFixed(1)} дн.`
+                        {computed.boosterSummary.spend > 0
+                          ? describePayback(
+                              computed.boosterSummary.paybackHours,
+                              computed.boosterSummary.activeHours
+                            )
                           : '—'}
                       </td>
                     </tr>

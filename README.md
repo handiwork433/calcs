@@ -32,8 +32,9 @@ After the dependencies are installed, start the development server with `npm run
 ## Key capabilities
 
 - Dynamic booster pricing that increases with portfolio exposure and respects blocked tariffs
-- Configurable ROI floor for boosters to guarantee investor bonuses relative to price
+- Configurable ROI floor for boosters to guarantee investor bonuses relative to price (editor now saves custom presets)
 - Minimal white dashboard with capital, lift and yield stats surfaced in real time
+- Time-aware booster analytics: lift per active hour, aggregated booster-hours, and payback windows tied to booster duration
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
 - Editors for quickly prototyping new tariffs (with slot limits) and boosters (with block lists)
 - Simulation lab for modeling multiple investor cohorts, aggregating deposits, payouts and project revenue streams
