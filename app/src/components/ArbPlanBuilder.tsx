@@ -26,6 +26,7 @@ type Tariff = {
   access: TariffAccess;
   entryFee: number;
   recommendedPrincipal: number | null;
+  payoutMode: 'stream' | 'locked';
 };
 
 type Booster = {
@@ -66,6 +67,8 @@ type PortfolioRow = {
   netAfter: number;
   netPerDayFinal: number;
   netFinal: number;
+  lockedNet: number;
+  lockedNetPerDay: number;
   netNoBoost: number;
   netNoBoostPerDay: number;
   boosterLift: number;
@@ -120,6 +123,10 @@ type Totals = {
   projectRevenuePerDay: number;
   programFees: number;
   programFeesPerDay: number;
+  lockedNetTotal: number;
+  lockedNetPerDay: number;
+  unlockedNetTotal: number;
+  unlockedNetPerDay: number;
 };
 
 type ProjectionEntry = {
@@ -193,6 +200,8 @@ type InvestorSegment = {
   subscriptionId: string;
   accountBoosters: string[];
   portfolio: PortfolioItem[];
+  rampDays: number;
+  dailyTopUpPerInvestor: number;
 };
 
 const SUBSCRIPTIONS: Subscription[] = [
@@ -208,42 +217,34 @@ const SUBSCRIPTIONS: Subscription[] = [
 ];
 
 const INIT_TARIFFS: Tariff[] = [
-  { id: 't_start', name: 'Start Day', durationDays: 1, dailyRate: 0.003, minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_weekly_a', name: 'Weekly A', durationDays: 7, dailyRate: 0.004, minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_weekly_b', name: 'Weekly B', durationDays: 7, dailyRate: 0.005, minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_flex14', name: 'Flex 14', durationDays: 14, dailyRate: 0.006, minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_month_std', name: 'Month Std', durationDays: 30, dailyRate: 0.0065, minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_month_plus', name: 'Month Plus', durationDays: 30, dailyRate: 0.0075, minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_quarter', name: 'Quarter 90', durationDays: 90, dailyRate: 0.008, minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, dailyRate: 0.0065, minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 100, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_express3', name: 'Express 3d', durationDays: 3, dailyRate: 0.007, minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_mm30', name: 'Market Making 30', durationDays: 30, dailyRate: 0.009, minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 50, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_global60', name: 'Global 60', durationDays: 60, dailyRate: 0.0095, minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 40, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_prime45', name: 'Prime 45', durationDays: 45, dailyRate: 0.01, minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 30, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_flash7', name: 'Flash Seven', durationDays: 7, dailyRate: 0.011, minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 70, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_dual21', name: 'Dual 21', durationDays: 21, dailyRate: 0.0072, minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_swing28', name: 'Swing 28', durationDays: 28, dailyRate: 0.0083, minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_spot18', name: 'Spot 18', durationDays: 18, dailyRate: 0.0078, minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_meta60', name: 'Meta 60', durationDays: 60, dailyRate: 0.0105, minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 25, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_spread10', name: 'Spread 10', durationDays: 10, dailyRate: 0.0068, minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 120, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_quant90', name: 'Quant 90', durationDays: 90, dailyRate: 0.0098, minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 35, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_event5', name: 'Event 5', durationDays: 5, dailyRate: 0.012, minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_ai45', name: 'AI 45', durationDays: 45, dailyRate: 0.0112, minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 40, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 't_yield75', name: 'Yield 75', durationDays: 75, dailyRate: 0.0089, minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
-  { id: 'p_combo30', name: 'Combo 30', durationDays: 30, dailyRate: 0.0068, minLevel: 1, baseMin: 150, baseMax: 3200, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 25, recommendedPrincipal: 300 },
-  { id: 'p_scalp7', name: 'Scalp 7', durationDays: 7, dailyRate: 0.0092, minLevel: 1, baseMin: 120, baseMax: 2500, reqSub: null, isLimited: true, capSlots: 60, category: 'program', access: 'open', entryFee: 12, recommendedPrincipal: 400 },
-  { id: 'p_loyal30', name: 'Loyalty 30', durationDays: 30, dailyRate: 0.007, minLevel: 1, baseMin: 200, baseMax: 5000, reqSub: 'bronze', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 29, recommendedPrincipal: 450 },
-  { id: 'p_airdrop14', name: 'Airdrop 14', durationDays: 14, dailyRate: 0.0115, minLevel: 1, baseMin: 250, baseMax: 4200, reqSub: null, isLimited: true, capSlots: 100, category: 'program', access: 'open', entryFee: 19, recommendedPrincipal: 320 },
-  { id: 'p_escalate21', name: 'Escalate 21', durationDays: 21, dailyRate: 0.0085, minLevel: 1, baseMin: 300, baseMax: 6500, reqSub: 'silver', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 35, recommendedPrincipal: 550 },
-  { id: 'p_wave60', name: 'Wave 60', durationDays: 60, dailyRate: 0.0093, minLevel: 1, baseMin: 500, baseMax: 15000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 99, recommendedPrincipal: 900 },
-  { id: 'p_flash3', name: 'Flash 3', durationDays: 3, dailyRate: 0.015, minLevel: 1, baseMin: 150, baseMax: 2000, reqSub: null, isLimited: true, capSlots: 120, category: 'program', access: 'open', entryFee: 5, recommendedPrincipal: 250 },
-  { id: 'p_launch10', name: 'Launchpad 10', durationDays: 10, dailyRate: 0.0105, minLevel: 1, baseMin: 220, baseMax: 4000, reqSub: null, isLimited: true, capSlots: 90, category: 'program', access: 'open', entryFee: 18, recommendedPrincipal: 450 },
-  { id: 'p_sprint20', name: 'Sprint 20', durationDays: 20, dailyRate: 0.009, minLevel: 1, baseMin: 300, baseMax: 6500, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 45, recommendedPrincipal: 700 },
-  { id: 'p_diversify14', name: 'Diversify 14', durationDays: 14, dailyRate: 0.0098, minLevel: 1, baseMin: 240, baseMax: 4800, reqSub: null, isLimited: true, capSlots: 80, category: 'program', access: 'open', entryFee: 28, recommendedPrincipal: 500 },
-  { id: 'p_quantum45', name: 'Quantum 45', durationDays: 45, dailyRate: 0.0108, minLevel: 1, baseMin: 700, baseMax: 9000, reqSub: 'silver', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 120, recommendedPrincipal: 1200 },
-  { id: 'p_hedge30', name: 'Hedge 30', durationDays: 30, dailyRate: 0.0078, minLevel: 1, baseMin: 260, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 40, recommendedPrincipal: 650 },
-  { id: 'p_passive90', name: 'Passive 90', durationDays: 90, dailyRate: 0.0088, minLevel: 1, baseMin: 800, baseMax: 15000, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 180, recommendedPrincipal: 1500 },
-  { id: 'p_metaelite60', name: 'Meta Elite 60', durationDays: 60, dailyRate: 0.0115, minLevel: 1, baseMin: 1500, baseMax: 24000, reqSub: 'gold', isLimited: true, capSlots: 60, category: 'program', access: 'open', entryFee: 210, recommendedPrincipal: 2500 }
+  { id: 't_start', name: 'Start Day', durationDays: 1, dailyRate: 0.003, minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_weekly_a', name: 'Weekly A', durationDays: 7, dailyRate: 0.004, minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_weekly_b', name: 'Weekly B', durationDays: 7, dailyRate: 0.005, minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_flex14', name: 'Flex 14', durationDays: 14, dailyRate: 0.006, minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_month_std', name: 'Month Std', durationDays: 30, dailyRate: 0.0065, minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_month_plus', name: 'Month Plus', durationDays: 30, dailyRate: 0.0075, minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_quarter', name: 'Quarter 90', durationDays: 90, dailyRate: 0.008, minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, dailyRate: 0.0068, minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 80, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_express3', name: 'Express 3d', durationDays: 3, dailyRate: 0.007, minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_mm30', name: 'Market Making 30', durationDays: 30, dailyRate: 0.0092, minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 40, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_global60', name: 'Global 60', durationDays: 60, dailyRate: 0.0098, minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 30, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_prime45', name: 'Prime 45', durationDays: 45, dailyRate: 0.0102, minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 24, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_flash7', name: 'Flash Seven', durationDays: 7, dailyRate: 0.0115, minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 60, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_dual21', name: 'Dual 21', durationDays: 21, dailyRate: 0.0074, minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_swing28', name: 'Swing 28', durationDays: 28, dailyRate: 0.0085, minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_spot18', name: 'Spot 18', durationDays: 18, dailyRate: 0.008, minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_meta60', name: 'Meta 60', durationDays: 60, dailyRate: 0.0108, minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 20, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_spread10', name: 'Spread 10', durationDays: 10, dailyRate: 0.0069, minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 110, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_quant90', name: 'Quant 90', durationDays: 90, dailyRate: 0.0101, minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 28, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_event5', name: 'Event 5', durationDays: 5, dailyRate: 0.0125, minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 't_ai45', name: 'AI 45', durationDays: 45, dailyRate: 0.0115, minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 32, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' },
+  { id: 't_yield75', name: 'Yield 75', durationDays: 75, dailyRate: 0.0091, minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' },
+  { id: 'p_premium28', name: 'Premium Access 28', durationDays: 28, dailyRate: 0.0095, minLevel: 1, baseMin: 400, baseMax: 6000, reqSub: null, isLimited: true, capSlots: 75, category: 'program', access: 'open', entryFee: 180, recommendedPrincipal: 1800, payoutMode: 'locked' },
+  { id: 'p_quant_elite30', name: 'Quant Elite 30', durationDays: 30, dailyRate: 0.012, minLevel: 1, baseMin: 600, baseMax: 9000, reqSub: 'silver', isLimited: true, capSlots: 60, category: 'program', access: 'open', entryFee: 260, recommendedPrincipal: 2500, payoutMode: 'locked' },
+  { id: 'p_launch_vip14', name: 'Launch VIP 14', durationDays: 14, dailyRate: 0.0135, minLevel: 1, baseMin: 450, baseMax: 6500, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 140, recommendedPrincipal: 1500, payoutMode: 'stream' },
+  { id: 'p_titan45', name: 'Titan 45', durationDays: 45, dailyRate: 0.0118, minLevel: 1, baseMin: 900, baseMax: 14000, reqSub: 'gold', isLimited: true, capSlots: 45, category: 'program', access: 'open', entryFee: 360, recommendedPrincipal: 3600, payoutMode: 'locked' },
+  { id: 'p_zen60', name: 'Zenith 60', durationDays: 60, dailyRate: 0.0108, minLevel: 1, baseMin: 1200, baseMax: 20000, reqSub: 'gold', isLimited: true, capSlots: 40, category: 'program', access: 'open', entryFee: 520, recommendedPrincipal: 5200, payoutMode: 'locked' },
+  { id: 'p_founders90', name: 'Founders 90', durationDays: 90, dailyRate: 0.0125, minLevel: 1, baseMin: 2000, baseMax: 26000, reqSub: 'elite', isLimited: true, capSlots: 24, category: 'program', access: 'open', entryFee: 900, recommendedPrincipal: 10000, payoutMode: 'locked' }
 ];
 
 const BASE_BOOSTERS: Booster[] = [
@@ -376,7 +377,8 @@ function normalizeTariff(t: any): Tariff {
     recommendedPrincipal:
       t?.recommendedPrincipal === null || t?.recommendedPrincipal === undefined || t?.recommendedPrincipal === ''
         ? null
-        : Number(t.recommendedPrincipal)
+        : Number(t.recommendedPrincipal),
+    payoutMode: t?.payoutMode === 'locked' ? 'locked' : 'stream'
   };
 }
 
@@ -702,6 +704,12 @@ function computePortfolioState({
 
     const boosterLift = netBeforeSub - r.netNoBoost;
     const boosterLiftPerDay = netPerDayBeforeSub - r.netNoBoostPerDay;
+    const isLocked = r.t.payoutMode === 'locked';
+    const unlockedPerDayBeforeSub = isLocked ? 0 : netPerDayBeforeSub;
+    const lockedPerDayBeforeSub = isLocked ? netPerDayBeforeSub : 0;
+    const netPerDayFinal = unlockedPerDayBeforeSub - subPerDay;
+    const netFinal = netBeforeSub - subAlloc;
+    const lockedNet = isLocked ? netFinal : 0;
 
     const baseNetFactor = r.t.dailyRate * r.t.durationDays * (1 - feeRate);
     const insight = programInsights[r.t.id];
@@ -725,8 +733,10 @@ function computePortfolioState({
       recommendedPrincipal,
       netPerDayAfter: netPerDayBeforeSub,
       netAfter: netBeforeSub,
-      netPerDayFinal: netPerDayBeforeSub - subPerDay,
-      netFinal: netBeforeSub - subAlloc,
+      netPerDayFinal,
+      netFinal,
+      lockedNet,
+      lockedNetPerDay: lockedPerDayBeforeSub,
       boosterLift,
       boosterLiftPerDay,
       boosterDetails
@@ -747,6 +757,13 @@ function computePortfolioState({
   const subCostPerDay = rows.reduce((s, r) => s + r.subPerDay, 0);
   const programFees = rows.reduce((s, r) => s + r.programFee, 0);
   const programFeesPerDay = rows.reduce((s, r) => s + r.programFeePerDay, 0);
+  const lockedNetTotal = rows.reduce((s, r) => s + r.lockedNet, 0);
+  const lockedNetPerDay = rows.reduce((s, r) => s + r.lockedNetPerDay, 0);
+  const unlockedNetTotal = rows.reduce((s, r) => s + (r.netFinal - r.lockedNet), 0);
+  const unlockedNetPerDay = rows.reduce(
+    (s, r) => s + (r.t.payoutMode === 'locked' ? 0 : r.netPerDayFinal),
+    0
+  );
   const coveredCapital = rows.reduce((sum, r) => {
     const details = Object.values(r.boosterDetails || {});
     if (details.length === 0) return sum;
@@ -870,7 +887,11 @@ function computePortfolioState({
       subCostPerDay,
       projectRevenuePerDay,
       programFees,
-      programFeesPerDay
+      programFeesPerDay,
+      lockedNetTotal,
+      lockedNetPerDay,
+      unlockedNetTotal,
+      unlockedNetPerDay
     },
     projection30,
     boosterSummary: {
@@ -1018,18 +1039,53 @@ function runSelfTests() {
     SUBSCRIPTIONS[0].fee,
     DEFAULT_PROGRAM_CONTROLS
   );
-  const comboInsight = designInsights['p_combo30'];
-  console.assert(comboInsight != null, 'combo insight should be produced');
-  if (comboInsight) {
+  const premiumInsight = designInsights['p_premium28'];
+  console.assert(premiumInsight != null, 'premium insight should be produced');
+  if (premiumInsight) {
     console.assert(
-      comboInsight.recommendedPrincipal == null || comboInsight.recommendedPrincipal >= comboInsight.tariff.baseMin,
+      premiumInsight.recommendedPrincipal == null ||
+        premiumInsight.recommendedPrincipal >= premiumInsight.tariff.baseMin,
       'recommended principal should not drop below base minimum'
     );
     console.assert(
-      comboInsight.maxEntryFeeForTarget != null,
-      'entry fee ceiling should be available for combo insight'
+      premiumInsight.maxEntryFeeForTarget != null,
+      'entry fee ceiling should be available for premium insight'
     );
   }
+
+  const lockedTariff = normalizeTariff({
+    id: 'test_lock',
+    name: 'Lock 10',
+    durationDays: 10,
+    dailyRate: 0.01,
+    minLevel: 1,
+    baseMin: 100,
+    baseMax: 1000,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'locked'
+  });
+  const lockedState = computePortfolioState({
+    portfolio: [{ id: 'locked', tariffId: 'test_lock', amount: 500 }],
+    boosters: [],
+    accountBoosters: [],
+    tariffs: [lockedTariff],
+    activeSubId: 'free',
+    userLevel: 5,
+    programControls: DEFAULT_PROGRAM_CONTROLS
+  });
+  const lockedRow = lockedState.rows[0];
+  console.assert(lockedRow.lockedNet > 0, 'locked plan should accumulate deferred payout');
+  console.assert(
+    Math.abs(lockedRow.lockedNetPerDay - lockedRow.netPerDayAfter) < 1e-6,
+    'locked per-day accrual mirrors base net'
+  );
+  console.assert(lockedRow.netPerDayFinal <= 0, 'locked plan cashflow per day excludes accrual');
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -1145,7 +1201,9 @@ export default function ArbPlanBuilder() {
       portfolio: [
         { id: uid('pi'), tariffId: 't_quarter', amount: 8000 },
         { id: uid('pi'), tariffId: 't_month_plus', amount: 6000 }
-      ]
+      ],
+      rampDays: 14,
+      dailyTopUpPerInvestor: 0
     },
     {
       id: uid('seg'),
@@ -1157,19 +1215,44 @@ export default function ArbPlanBuilder() {
       portfolio: [
         { id: uid('pi'), tariffId: 't_weekly_b', amount: 800 },
         { id: uid('pi'), tariffId: 't_flex14', amount: 1200 }
-      ]
+      ],
+      rampDays: 10,
+      dailyTopUpPerInvestor: 25
     }
   ]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tariffCategoryFilter, setTariffCategoryFilter] = useState<'all' | 'plan' | 'program'>('all');
+  const [tariffPayoutFilter, setTariffPayoutFilter] = useState<'all' | 'stream' | 'locked'>('all');
+  const [tariffSearch, setTariffSearch] = useState('');
 
   const sortedTariffs = useMemo(() => [...tariffs].sort(sortTariffs), [tariffs]);
-  const eligibleTariffs = sortedTariffs.filter((t) => tariffAccessible(t, userLevel, activeSubId));
+  const filteredTariffs = useMemo(() => {
+    const query = tariffSearch.trim().toLowerCase();
+    return sortedTariffs.filter((t) => {
+      if (tariffCategoryFilter !== 'all' && t.category !== tariffCategoryFilter) return false;
+      if (tariffPayoutFilter !== 'all' && t.payoutMode !== tariffPayoutFilter) return false;
+      if (query) {
+        const haystack = `${t.name} ${t.id}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      return true;
+    });
+  }, [sortedTariffs, tariffCategoryFilter, tariffPayoutFilter, tariffSearch]);
+  const eligibleTariffs = useMemo(
+    () => filteredTariffs.filter((t) => tariffAccessible(t, userLevel, activeSubId)),
+    [filteredTariffs, userLevel, activeSubId]
+  );
   const availableAccountBoosters = boosters.filter(
     (b) =>
       b.scope === 'account' &&
       withinLevel(userLevel, b.minLevel) &&
       subMeets(b.reqSub, activeSubId)
   );
+  const resetTariffFilters = () => {
+    setTariffCategoryFilter('all');
+    setTariffPayoutFilter('all');
+    setTariffSearch('');
+  };
 
   const boosterInsights = useMemo(() => {
     return availableAccountBoosters.map((booster) =>
@@ -1481,23 +1564,92 @@ export default function ArbPlanBuilder() {
             <div className="card" style={{ display: 'grid', gap: 16 }}>
               <div className="flex-between">
                 <h2 className="section-title">Добавить тариф</h2>
-                <select onChange={(e) => e.target.value && addTariff(e.target.value)} value="">
-                  <option value="" disabled>
-                    Выбрать тариф (фильтр по уровню/подписке)
-                  </option>
-                  {eligibleTariffs.map((t) => {
-                    const used = tariffSlotsUsed.get(t.id) || 0;
-                    const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
-                    return (
-                      <option key={t.id} value={t.id} disabled={left !== null && left === 0}>
-                        {t.category === 'program' ? '[Программа] ' : ''}
-                        {t.name} — {(t.dailyRate * 100).toFixed(2)}%/d × {t.durationDays}d{' '}
-                        {left !== null ? `• слотов: ${left}` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                <button className="ghost" type="button" onClick={() => resetTariffFilters()}>
+                  Сбросить фильтры
+                </button>
               </div>
+              <div
+                className="flex"
+                style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}
+              >
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span className="section-subtitle">Категория:</span>
+                  {([
+                    ['all', 'Все'],
+                    ['plan', 'Тарифы'],
+                    ['program', 'Программы']
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className="chip"
+                      style={{
+                        background: tariffCategoryFilter === value ? '#2563eb' : '#e2e8f0',
+                        color: tariffCategoryFilter === value ? '#fff' : '#1e293b'
+                      }}
+                      onClick={() => setTariffCategoryFilter(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span className="section-subtitle">Выплаты:</span>
+                  {([
+                    ['all', 'Любые'],
+                    ['stream', 'Ежедневно'],
+                    ['locked', 'В конце']
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className="chip"
+                      style={{
+                        background: tariffPayoutFilter === value ? '#2563eb' : '#e2e8f0',
+                        color: tariffPayoutFilter === value ? '#fff' : '#1e293b'
+                      }}
+                      onClick={() => setTariffPayoutFilter(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="search"
+                  placeholder="Поиск по названию"
+                  value={tariffSearch}
+                  onChange={(e) => setTariffSearch(e.target.value)}
+                  style={{ minWidth: 160 }}
+                />
+              </div>
+              <select
+                onChange={(e) => e.target.value && addTariff(e.target.value)}
+                value=""
+                disabled={eligibleTariffs.length === 0}
+              >
+                <option value="" disabled>
+                  {eligibleTariffs.length === 0
+                    ? 'Нет тарифов по текущим фильтрам'
+                    : 'Выбрать тариф (фильтр по уровню/подписке)'}
+                </option>
+                {eligibleTariffs.map((t) => {
+                  const used = tariffSlotsUsed.get(t.id) || 0;
+                  const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
+                  return (
+                    <option key={t.id} value={t.id} disabled={left !== null && left === 0}>
+                      {t.category === 'program' ? '[Программа] ' : ''}
+                      {t.name} — {(t.dailyRate * 100).toFixed(2)}%/d × {t.durationDays}d{' '}
+                      {t.payoutMode === 'locked' ? '• заморозка' : ''}
+                      {left !== null ? ` • слотов: ${left}` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+              {eligibleTariffs.length === 0 && (
+                <span className="section-subtitle">
+                  Подберите другой фильтр или повысьте уровень/подписку, чтобы увидеть больше вариантов.
+                </span>
+              )}
 
               {portfolio.length === 0 && (
                 <p className="section-subtitle">Тарифы не добавлены. Выберите тариф выше.</p>
@@ -1549,6 +1701,22 @@ export default function ArbPlanBuilder() {
                 <div className="flex-between">
                   <span>Лифт от бустеров (после оплаты):</span>
                   <span>{fmtMoney(computed.boosterSummary.liftNet, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Выплаты в заморозке:</span>
+                  <span>{fmtMoney(computed.totals.lockedNetTotal, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Заморожено в день:</span>
+                  <span>{fmtMoney(computed.totals.lockedNetPerDay, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Доступно в день (поток):</span>
+                  <span>{fmtMoney(computed.totals.unlockedNetPerDay, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Доступно за срок (поток):</span>
+                  <span>{fmtMoney(computed.totals.unlockedNetTotal, currency)}</span>
                 </div>
                 <div className="flex-between">
                   <span>Лифт в день (усреднено по тарифам):</span>
@@ -1674,11 +1842,12 @@ export default function ArbPlanBuilder() {
           <div className="card" style={{ display: 'grid', gap: 16 }}>
             <h2 className="section-title">Доступные тарифы</h2>
             <p className="section-subtitle">
-              Тарифы не требуют входных платежей и доступны по уровню. Программы можно купить независимо от уровня,
-              но они содержат единоразовый входной взнос, поэтому важно подобрать сумму депозита, чтобы окупить его.
+              Тарифы приносят выплаты ежедневно и требуют соблюдения уровня. Программы доступны для всех уровней, но
+              включают входной взнос и могут переводить прибыль в замороженный баланс до конца срока — учитывайте это при
+              подборе суммы.
             </p>
             <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-              {sortedTariffs.map((t, idx, arr) => {
+              {filteredTariffs.map((t, idx, arr) => {
                 const used = tariffSlotsUsed.get(t.id) || 0;
                 const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
                 const locked = !tariffAccessible(t, userLevel, activeSubId);
@@ -1723,6 +1892,16 @@ export default function ArbPlanBuilder() {
                           <span className="badge">Lv ≥ {t.minLevel}</span>
                         )}
                         {t.reqSub && <span className="badge">Req: {t.reqSub}</span>}
+                        <span
+                          className="badge"
+                          style={
+                            t.payoutMode === 'locked'
+                              ? { background: '#fef3c7', color: '#92400e' }
+                              : { background: '#dcfce7', color: '#166534' }
+                          }
+                        >
+                          {t.payoutMode === 'locked' ? 'Выплата в конце' : 'Ежедневно'}
+                        </span>
                         {t.isLimited && (
                           <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
                             Слотов: {left}
@@ -1753,6 +1932,11 @@ export default function ArbPlanBuilder() {
                           {entryFeeGap != null && (
                             <> Δвход: {entryFeeGap >= 0 ? '+' : ''}{fmtMoney(entryFeeGap, currency)}</>
                           )}
+                        </div>
+                      )}
+                      {t.payoutMode === 'locked' && (
+                        <div className="section-subtitle" style={{ color: '#b45309' }}>
+                          Прибыль копится и будет выплачена одним траншем по завершении срока.
                         </div>
                       )}
                       <button
@@ -1929,6 +2113,12 @@ function TariffRow({
   const competitorName = insight?.competitor?.name ?? 'базовым тарифам';
   const maxEntryFee = insight?.maxEntryFeeForTarget ?? null;
   const entryFeeGap = insight?.entryFeeGap ?? null;
+  const payoutLabel =
+    t.payoutMode === 'locked' ? 'Выплата в конце срока' : 'Начисления ежедневно';
+  const payoutBadgeStyle =
+    t.payoutMode === 'locked'
+      ? { background: '#fef3c7', color: '#92400e' }
+      : { background: '#dcfce7', color: '#166534' };
 
   return (
     <div className="card">
@@ -1949,6 +2139,9 @@ function TariffRow({
             <span className="badge">{(t.dailyRate * 100).toFixed(2)}%/d</span>
             <span className="badge">
               {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
+            </span>
+            <span className="badge" style={payoutBadgeStyle}>
+              {payoutLabel}
             </span>
             {t.entryFee > 0 && (
               <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
@@ -2010,6 +2203,12 @@ function TariffRow({
             : 'Задайте комфортную сумму, чтобы окупить взнос.'}
         </div>
       )}
+      {t.payoutMode === 'locked' && (
+        <div className="section-subtitle" style={{ color: '#b45309' }}>
+          Начисления копятся в замороженном балансе и переходят в основной счет по окончании {t.durationDays}
+          {' '}дн.
+        </div>
+      )}
 
       <RowPreview
         currency={currency}
@@ -2056,8 +2255,11 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
   const netBeforeBoosters = rowData?.netNoBoost ?? 0;
   const netWithBoosters = rowData?.netAfter ?? netBeforeBoosters;
   const netFinal = rowData?.netFinal ?? netWithBoosters;
-  const netPerDayBeforeSub = rowData?.netPerDayAfter ?? (rowData?.netNoBoostPerDay ?? 0);
-  const netPerDayFinal = rowData?.netPerDayFinal ?? netPerDayBeforeSub;
+  const payoutMode = rowData?.t?.payoutMode ?? 'stream';
+  const netPerDayAccrual = rowData?.netPerDayAfter ?? (rowData?.netNoBoostPerDay ?? 0);
+  const netPerDayFinal = rowData?.netPerDayFinal ?? netPerDayAccrual;
+  const lockedNet = rowData?.lockedNet ?? 0;
+  const lockedNetPerDay = rowData?.lockedNetPerDay ?? 0;
   const boosterLift = rowData?.boosterLift ?? 0;
   const boosterLiftPerDay = rowData?.boosterLiftPerDay ?? 0;
   const programFee = rowData?.programFee ?? 0;
@@ -2115,10 +2317,10 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
             Инвестору (после бустеров): <strong>{fmtMoney(netWithBoosters, currency)}</strong>
           </span>
           <span>
-            В день (без подписки): <strong>{fmtMoney(netPerDayBeforeSub, currency)}</strong>
+            Начисление в день (без подписки): <strong>{fmtMoney(netPerDayAccrual, currency)}</strong>
           </span>
           <span>
-            Начисление в день (после всех вычетов): <strong>{fmtMoney(netPerDayFinal, currency)}</strong>
+            Денежный поток в день (после подписки): <strong>{fmtMoney(netPerDayFinal, currency)}</strong>
           </span>
           <span>
             Финал с подпиской: <strong>{fmtMoney(netFinal, currency)}</strong>
@@ -2126,6 +2328,16 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
           <span>
             Прирост/день: <strong>{fmtMoney(boosterLiftPerDay, currency)}</strong>
           </span>
+          {payoutMode === 'locked' && (
+            <>
+              <span style={{ color: '#b45309' }}>
+                В заморозке в день: <strong>{fmtMoney(lockedNetPerDay, currency)}</strong>
+              </span>
+              <span style={{ color: '#b45309' }}>
+                Выплата в конце срока: <strong>{fmtMoney(lockedNet, currency)}</strong>
+              </span>
+            </>
+          )}
           {programFee > 0 && (
             <span>
               Вход программы: <strong>{fmtMoney(programFee, currency)}</strong>
@@ -2358,11 +2570,26 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
         t.id === id
           ? {
               ...t,
-              [field]: ['durationDays', 'minLevel', 'baseMin', 'baseMax', 'capSlots'].includes(field as string)
-                ? Number(val)
-                : field === 'dailyRate'
-                ? Number(val)
-                : val
+              [field]:
+                field === 'capSlots'
+                  ? val === null
+                    ? null
+                    : Number(val)
+                  : field === 'recommendedPrincipal'
+                  ? val === null
+                    ? null
+                    : Number(val)
+                  : [
+                      'durationDays',
+                      'minLevel',
+                      'baseMin',
+                      'baseMax',
+                      'entryFee'
+                    ].includes(field as string)
+                  ? Number(val)
+                  : field === 'dailyRate'
+                  ? Number(val)
+                  : val
             }
           : t
       )
@@ -2387,7 +2614,8 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
         category: 'plan',
         access: 'level',
         entryFee: 0,
-        recommendedPrincipal: null
+        recommendedPrincipal: null,
+        payoutMode: 'stream'
       }
     ]);
   };
@@ -2417,6 +2645,7 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
               <th>Доступ</th>
               <th>Дней</th>
               <th>%/день</th>
+              <th>Выплаты</th>
               <th>Мин Lv</th>
               <th>Мин</th>
               <th>Макс</th>
@@ -2460,6 +2689,12 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
                     value={t.dailyRate}
                     onChange={(e) => update(t.id, 'dailyRate', Number(e.target.value))}
                   />
+                </td>
+                <td style={{ width: 140 }}>
+                  <select value={t.payoutMode} onChange={(e) => update(t.id, 'payoutMode', e.target.value)}>
+                    <option value="stream">Ежедневно</option>
+                    <option value="locked">Заморозка до конца</option>
+                  </select>
                 </td>
                 <td style={{ width: 80 }}>
                   <input
@@ -2722,6 +2957,8 @@ type MmmModel = {
   startReserve: number;
   projectTake: number;
   dailyOutflowFirst: number;
+  totalTopUps: number;
+  totalDeposits: number;
 };
 
 function SimulationPanel({
@@ -2743,7 +2980,9 @@ function SimulationPanel({
         userLevel: 5,
         subscriptionId: 'bronze',
         accountBoosters: [],
-        portfolio: []
+        portfolio: [],
+        rampDays: 7,
+        dailyTopUpPerInvestor: 0
       }
     ]);
   };
@@ -2871,6 +3110,11 @@ function SimulationPanel({
     let boosterNetBeforeCostTotal = 0;
     let programFeeTotal = 0;
     let programFeePerDayTotal = 0;
+    let lockedNetTotal = 0;
+    let lockedNetPerDayTotal = 0;
+    let unlockedNetTotal = 0;
+    let unlockedNetPerDayTotal = 0;
+    let topUpPerDayTotal = 0;
 
     segmentSummaries.forEach(({ segment, computed, depositPerInvestor }) => {
       investorsTotal += segment.investors;
@@ -2892,6 +3136,11 @@ function SimulationPanel({
       boosterNetBeforeCostTotal += computed.boosterSummary.netBeforeCost * multiplier;
       programFeeTotal += computed.totals.programFees * multiplier;
       programFeePerDayTotal += computed.totals.programFeesPerDay * multiplier;
+      lockedNetTotal += computed.totals.lockedNetTotal * multiplier;
+      lockedNetPerDayTotal += computed.totals.lockedNetPerDay * multiplier;
+      unlockedNetTotal += computed.totals.unlockedNetTotal * multiplier;
+      unlockedNetPerDayTotal += computed.totals.unlockedNetPerDay * multiplier;
+      topUpPerDayTotal += segment.dailyTopUpPerInvestor * multiplier;
     });
 
     return {
@@ -2912,7 +3161,12 @@ function SimulationPanel({
       boosterActiveHoursTotal,
       boosterNetBeforeCostTotal,
       programFeeTotal,
-      programFeePerDayTotal
+      programFeePerDayTotal,
+      lockedNetTotal,
+      lockedNetPerDayTotal,
+      unlockedNetTotal,
+      unlockedNetPerDayTotal,
+      topUpPerDayTotal
     };
   }, [segmentSummaries]);
 
@@ -2927,64 +3181,122 @@ function SimulationPanel({
   const mmmModel = useMemo<MmmModel | null>(() => {
     if (segmentSummaries.length === 0) return null;
 
-    let startReserve = 0;
-    let projectTake = 0;
-    const plans: { duration: number; principal: number; dailyPayout: number }[] = [];
+    type PlanInstance = {
+      daysRemaining: number;
+      principal: number;
+      dailyPayout: number;
+      maturityPayout: number;
+    };
 
-    segmentSummaries.forEach(({ segment, computed, depositPerInvestor, planRows }) => {
-      const multiplier = segment.investors;
-      startReserve += depositPerInvestor * multiplier;
-      projectTake += computed.totals.projectRevenue * multiplier;
+    const planQueue: PlanInstance[] = [];
+    const segmentStates = segmentSummaries.map(({ segment, computed, depositPerInvestor, planRows }) => {
+      const rampDays = Math.max(1, segment.rampDays || 1);
+      return {
+        segment,
+        computed,
+        depositPerInvestor,
+        planRows,
+        rampDays,
+        investorsPerDay: segment.investors / rampDays,
+        onboarded: 0
+      };
+    });
+
+    let maxDuration = 0;
+    let maxRamp = 0;
+    segmentSummaries.forEach(({ segment, planRows }) => {
+      maxRamp = Math.max(maxRamp, Math.max(1, segment.rampDays || 1));
       planRows.forEach((row) => {
-        plans.push({
-          duration: row.t.durationDays,
-          principal: row.amount * multiplier,
-          dailyPayout: row.netPerDayAfter * multiplier
-        });
+        maxDuration = Math.max(maxDuration, row.t.durationDays);
       });
     });
 
-    const reserveAfterFees = Math.max(0, startReserve - projectTake);
-
-    if (plans.length === 0) {
-      return {
-        timeline: [
-          { day: 0, reserve: reserveAfterFees },
-          { day: 30, reserve: reserveAfterFees }
-        ],
-        collapseDay: null,
-        reserveAfterFees,
-        startReserve,
-        projectTake,
-        dailyOutflowFirst: 0
-      };
-    }
-
-    const maxDuration = plans.reduce((max, plan) => Math.max(max, plan.duration), 0);
-    const horizon = maxDuration + 30;
-    const timeline: { day: number; reserve: number }[] = [{ day: 0, reserve: reserveAfterFees }];
-    let reserve = reserveAfterFees;
+    const horizon = Math.max(30, maxDuration + maxRamp + 30);
+    const timeline: { day: number; reserve: number }[] = [{ day: 0, reserve: 0 }];
+    let reserve = 0;
     let collapseDay: number | null = null;
     let dailyOutflowFirst = 0;
+    let totalDeposits = 0;
+    let totalTopUps = 0;
+    let projectTake = 0;
 
     for (let day = 1; day <= horizon; day++) {
+      let dayProjectTake = 0;
       let dayOutflow = 0;
-      let principalOutflow = 0;
-      plans.forEach((plan) => {
-        if (day <= plan.duration) {
-          dayOutflow += plan.dailyPayout;
+      let maturityOutflow = 0;
+      let dayInflow = 0;
+
+      segmentStates.forEach((state) => {
+        const remaining = state.segment.investors - state.onboarded;
+        let newInvestors = 0;
+        if (day <= state.rampDays && remaining > 0) {
+          const planned = state.investorsPerDay;
+          newInvestors =
+            day === state.rampDays ? remaining : Math.min(remaining, planned);
+          state.onboarded += newInvestors;
+          const deposit = state.depositPerInvestor * newInvestors;
+          dayInflow += deposit;
+          totalDeposits += deposit;
+
+          state.planRows.forEach((row) => {
+            planQueue.push({
+              daysRemaining: row.t.durationDays,
+              principal: row.amount * newInvestors,
+              dailyPayout:
+                row.t.payoutMode === 'locked'
+                  ? 0
+                  : row.netPerDayFinal * newInvestors,
+              maturityPayout:
+                row.t.payoutMode === 'locked' ? row.netFinal * newInvestors : 0
+            });
+          });
         }
-        if (day === plan.duration) {
-          principalOutflow += plan.principal;
+
+        const activeInvestors = state.onboarded;
+        if (activeInvestors > 0) {
+          const topUp = state.segment.dailyTopUpPerInvestor * activeInvestors;
+          if (topUp > 0) {
+            dayInflow += topUp;
+            totalTopUps += topUp;
+          }
+
+          const revenue = state.computed.totals.projectRevenuePerDay * activeInvestors;
+          if (revenue > 0) {
+            dayProjectTake += revenue;
+          }
         }
       });
 
-      if (day === 1) {
-        dailyOutflowFirst = dayOutflow + principalOutflow;
+      reserve += dayInflow;
+
+      if (dayProjectTake > 0) {
+        reserve -= dayProjectTake;
+        projectTake += dayProjectTake;
+      }
+
+      for (let i = 0; i < planQueue.length; ) {
+        const plan = planQueue[i];
+        if (plan.daysRemaining > 0) {
+          if (plan.dailyPayout > 0) {
+            dayOutflow += plan.dailyPayout;
+          }
+          plan.daysRemaining -= 1;
+          if (plan.daysRemaining === 0) {
+            maturityOutflow += plan.principal + plan.maturityPayout;
+            planQueue.splice(i, 1);
+            continue;
+          }
+        }
+        i += 1;
       }
 
       reserve -= dayOutflow;
-      reserve -= principalOutflow;
+      reserve -= maturityOutflow;
+
+      if (day === 1) {
+        dailyOutflowFirst = dayOutflow + maturityOutflow + dayProjectTake;
+      }
+
       timeline.push({ day, reserve });
 
       if (reserve <= 0) {
@@ -2993,17 +3305,21 @@ function SimulationPanel({
       }
     }
 
-    if (collapseDay === null && timeline.length < horizon + 1) {
+    if (collapseDay === null && timeline[timeline.length - 1].day < horizon) {
       timeline.push({ day: horizon, reserve });
     }
+
+    const reserveAfterFees = Math.max(0, totalDeposits + totalTopUps - projectTake);
 
     return {
       timeline,
       collapseDay,
       reserveAfterFees,
-      startReserve,
+      startReserve: totalDeposits,
       projectTake,
-      dailyOutflowFirst
+      dailyOutflowFirst,
+      totalTopUps,
+      totalDeposits
     };
   }, [segmentSummaries]);
 
@@ -3049,6 +3365,22 @@ function SimulationPanel({
         <div className="sim-summary-card">
           <h4>Входные взносы программ</h4>
           <p>{fmtMoney(totals.programFeeTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Выплаты в заморозке</h4>
+          <p>{fmtMoney(totals.lockedNetTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Заморожено в день</h4>
+          <p>{fmtMoney(totals.lockedNetPerDayTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Поток/день (доступно)</h4>
+          <p>{fmtMoney(totals.unlockedNetPerDayTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Пополнения/день</h4>
+          <p>{fmtMoney(totals.topUpPerDayTotal, currency)}</p>
         </div>
         <div className="sim-summary-card">
           <h4>Лифт от бустеров</h4>
@@ -3164,6 +3496,28 @@ function SimulationPanel({
                 </label>
               </div>
 
+              <div className="flex" style={{ gap: 12, flexWrap: 'wrap' }}>
+                <label style={{ minWidth: 160 }}>
+                  <div className="section-subtitle">Дней набора</div>
+                  <input
+                    type="number"
+                    value={segment.rampDays}
+                    min={1}
+                    onChange={(e) => updateSegment(segment.id, 'rampDays', Math.max(1, Number(e.target.value)))}
+                  />
+                </label>
+                <label style={{ minWidth: 200 }}>
+                  <div className="section-subtitle">Пополнение / инвестор в день</div>
+                  <input
+                    type="number"
+                    value={segment.dailyTopUpPerInvestor}
+                    onChange={(e) =>
+                      updateSegment(segment.id, 'dailyTopUpPerInvestor', Math.max(0, Number(e.target.value)))
+                    }
+                  />
+                </label>
+              </div>
+
               <div>
                 <div className="section-subtitle">Бустеры сегмента</div>
                 <div className="flex">
@@ -3248,6 +3602,11 @@ function SimulationPanel({
                       <td>Депозит</td>
                       <td>{fmtMoney(depositPerInvestor, currency)}</td>
                       <td>{fmtMoney(depositPerInvestor * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Пополнение / день</td>
+                      <td>{fmtMoney(segment.dailyTopUpPerInvestor, currency)}</td>
+                      <td>{fmtMoney(segment.dailyTopUpPerInvestor * segment.investors, currency)}</td>
                     </tr>
                     <tr>
                       <td>Валовая прибыль</td>
@@ -3345,6 +3704,21 @@ function SimulationPanel({
                       <td>{fmtMoney(computed.totals.investorNet * segment.investors, currency)}</td>
                     </tr>
                     <tr>
+                      <td>Заморожено к выплате</td>
+                      <td>{fmtMoney(computed.totals.lockedNetTotal, currency)}</td>
+                      <td>{fmtMoney(computed.totals.lockedNetTotal * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Поток за срок</td>
+                      <td>{fmtMoney(computed.totals.unlockedNetTotal, currency)}</td>
+                      <td>{fmtMoney(computed.totals.unlockedNetTotal * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Поток/день (после подписки)</td>
+                      <td>{fmtMoney(computed.totals.unlockedNetPerDay, currency)}</td>
+                      <td>{fmtMoney(computed.totals.unlockedNetPerDay * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
                       <td>Доход проекта</td>
                       <td>{fmtMoney(computed.totals.projectRevenue, currency)}</td>
                       <td>{fmtMoney(computed.totals.projectRevenue * segment.investors, currency)}</td>
@@ -3366,7 +3740,15 @@ type MmmChartProps = {
 };
 
 function MmmChart({ model, currency }: MmmChartProps) {
-  const { timeline, collapseDay, reserveAfterFees, startReserve, projectTake, dailyOutflowFirst } = model;
+  const {
+    timeline,
+    collapseDay,
+    reserveAfterFees,
+    startReserve,
+    projectTake,
+    dailyOutflowFirst,
+    totalTopUps
+  } = model;
   if (!timeline || timeline.length < 2) return null;
 
   const width = 640;
@@ -3425,6 +3807,10 @@ function MmmChart({ model, currency }: MmmChartProps) {
         <div className="sim-summary-card">
           <h4>Комиссии проекта</h4>
           <p>{fmtMoney(projectTake, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Пополнения</h4>
+          <p>{fmtMoney(totalTopUps, currency)}</p>
         </div>
         <div className="sim-summary-card">
           <h4>Платёж в 1-й день</h4>
