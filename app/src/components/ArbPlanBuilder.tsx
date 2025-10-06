@@ -77,6 +77,30 @@ type PortfolioRow = {
   recommendedPrincipal: number | null;
 };
 
+type ProgramInsight = {
+  tariff: Tariff;
+  baseReturn: number;
+  competitor: Tariff | null;
+  competitorReturn: number;
+  requiredPremium: number;
+  margin: number;
+  breakevenAmount: number | null;
+  recommendedPrincipal: number | null;
+  premiumAtBaseMin: number | null;
+  premiumAtTarget: number | null;
+  advantageRatio: number | null;
+  maxEntryFeeForTarget: number | null;
+  entryFeeGap: number | null;
+  targetDeposit: number;
+  requirementMet: boolean;
+};
+
+type ProgramSummary = {
+  count: number;
+  avgPremium: number | null;
+  flagged: number;
+};
+
 type Totals = {
   grossProfitTotal: number;
   feeTotal: number;
@@ -121,12 +145,17 @@ type ComputedState = {
     liftNet: number;
     liftPerPlanDay: number;
     liftPerActiveHour: number;
+    activeHours: number;
+    netBeforeCost: number;
+    netAfterCost: number;
+    netAfterCostPerHour: number;
     spend: number;
     roi: number;
     paybackHours: number | null;
-    activeHours: number;
-    netBeforeCost: number;
+    coverageShare: number;
   };
+  programInsights: Record<string, ProgramInsight>;
+  programSummary: ProgramSummary;
 };
 
 type BoosterImpact = {
@@ -148,6 +177,12 @@ type PricingControls = {
   investorRoiFloorPct: number;
   minPrice: number;
   maxPrice: number;
+};
+
+type ProgramDesignControls = {
+  relativePremiumPct: number;
+  absolutePremiumPct: number;
+  bufferMultiple: number;
 };
 
 type InvestorSegment = {
@@ -237,6 +272,11 @@ function fmtMoney(n: number, currency = 'USD') {
   }
 }
 
+function fmtPercent(value: number | null | undefined, fractionDigits = 1) {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return `${(value * 100).toFixed(fractionDigits)}%`;
+}
+
 function withinLevel(userLevel: number, minLevel: number) {
   return userLevel >= minLevel;
 }
@@ -300,12 +340,19 @@ const DEFAULT_PRICING: PricingControls = {
   maxPrice: 1_000_000
 };
 
+const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
+  relativePremiumPct: 20,
+  absolutePremiumPct: 5,
+  bufferMultiple: 1.2
+};
+
 const STORAGE_KEY = 'arb-plan-builder-v4';
 
 type PersistedState = {
   tariffs?: Tariff[];
   boosters?: Booster[];
   pricing?: PricingControls;
+  programDesign?: ProgramDesignControls;
 };
 
 function normalizeTariff(t: any): Tariff {
@@ -419,6 +466,104 @@ function smartPriceBoostersDyn(
   });
 }
 
+function buildProgramInsights(
+  tariffs: Tariff[],
+  userLevel: number,
+  activeSubId: string,
+  feeRate: number,
+  controls: ProgramDesignControls
+): Record<string, ProgramInsight> {
+  const plans = tariffs.filter((t) => t.category === 'plan' && tariffAccessible(t, userLevel, activeSubId));
+  const programs = tariffs.filter((t) => t.category === 'program');
+
+  const planWithReturn = plans.map((t) => ({
+    tariff: t,
+    baseReturn: t.dailyRate * t.durationDays * (1 - feeRate)
+  }));
+
+  const bestPlan = planWithReturn.reduce<{
+    tariff: Tariff | null;
+    baseReturn: number;
+  }>(
+    (best, current) =>
+      current.baseReturn > best.baseReturn
+        ? { tariff: current.tariff, baseReturn: current.baseReturn }
+        : best,
+    { tariff: null, baseReturn: 0 }
+  );
+
+  const competitorTariff = bestPlan.tariff;
+  const competitorReturn = bestPlan.baseReturn;
+
+  const relativeTarget = Math.max(0, controls.relativePremiumPct) / 100;
+  const absoluteTarget = Math.max(0, controls.absolutePremiumPct) / 100;
+  const bufferMultiple = Math.max(1, controls.bufferMultiple);
+
+  const insights: Record<string, ProgramInsight> = {};
+
+  for (const program of programs) {
+    const baseReturn = program.dailyRate * program.durationDays * (1 - feeRate);
+    const requiredPremium = Math.max(competitorReturn * relativeTarget, absoluteTarget);
+    const margin = baseReturn - competitorReturn - requiredPremium;
+
+    const breakevenRaw =
+      program.entryFee > 0 && baseReturn > 0 ? program.entryFee / baseReturn : null;
+    const breakevenAmount =
+      breakevenRaw != null && Number.isFinite(breakevenRaw) ? breakevenRaw : null;
+
+    const anchorDeposit =
+      breakevenAmount != null
+        ? Math.max(program.baseMin, breakevenAmount * bufferMultiple)
+        : Math.max(program.baseMin, program.recommendedPrincipal ?? program.baseMin);
+
+    const recommendedPrincipal =
+      program.entryFee > 0 && margin > 0
+        ? Math.max(program.baseMin, (program.entryFee / margin) * bufferMultiple)
+        : null;
+
+    const targetDeposit = recommendedPrincipal ?? anchorDeposit;
+
+    const premiumAtBaseMin =
+      program.baseMin > 0
+        ? baseReturn - program.entryFee / program.baseMin - competitorReturn
+        : null;
+    const premiumAtTarget =
+      targetDeposit > 0
+        ? baseReturn - program.entryFee / targetDeposit - competitorReturn
+        : null;
+
+    const advantageRatio =
+      competitorReturn > 0 && premiumAtTarget != null
+        ? premiumAtTarget / competitorReturn
+        : null;
+
+    const rawGap = baseReturn - competitorReturn - requiredPremium;
+    const maxEntryFeeForTarget = rawGap > 0 ? rawGap * targetDeposit : 0;
+    const entryFeeGap = maxEntryFeeForTarget - program.entryFee;
+    const requirementMet = premiumAtTarget != null && premiumAtTarget >= requiredPremium;
+
+    insights[program.id] = {
+      tariff: program,
+      baseReturn,
+      competitor: competitorTariff ?? null,
+      competitorReturn,
+      requiredPremium,
+      margin,
+      breakevenAmount,
+      recommendedPrincipal,
+      premiumAtBaseMin,
+      premiumAtTarget,
+      advantageRatio,
+      maxEntryFeeForTarget,
+      entryFeeGap,
+      targetDeposit,
+      requirementMet
+    };
+  }
+
+  return insights;
+}
+
 type ComputeOptions = {
   portfolio: PortfolioItem[];
   boosters: Booster[];
@@ -426,6 +571,7 @@ type ComputeOptions = {
   tariffs: Tariff[];
   activeSubId: string;
   userLevel: number;
+  programControls: ProgramDesignControls;
 };
 
 function computePortfolioState({
@@ -434,7 +580,8 @@ function computePortfolioState({
   accountBoosters,
   tariffs,
   activeSubId,
-  userLevel
+  userLevel,
+  programControls
 }: ComputeOptions): ComputedState {
   const activeSub = SUBSCRIPTIONS.find((s) => s.id === activeSubId) ?? SUBSCRIPTIONS[0];
   const feeRate = activeSub.fee;
@@ -442,11 +589,13 @@ function computePortfolioState({
     .map((id) => boosters.find((b) => b.id === id))
     .filter(Boolean) as Booster[];
   const boosterNetGain = new Map<string, number>();
+  const programInsights = buildProgramInsights(tariffs, userLevel, activeSubId, feeRate, programControls);
 
   const rowsBase = portfolio
     .map((item) => {
       const t = tariffs.find((x) => x.id === item.tariffId);
       if (!t) return null;
+      const programInsight = programInsights[t.id];
       const amount = Math.max(0, Number(item.amount) || 0);
       const hours = t.durationDays * 24;
       const applicable = chosenAcc.filter(
@@ -498,7 +647,8 @@ function computePortfolioState({
         boosterNetById,
         programFee,
         programFeePerDay,
-        recommendedPrincipal: t.recommendedPrincipal ?? null
+        recommendedPrincipal:
+          programInsight?.recommendedPrincipal ?? t.recommendedPrincipal ?? null
       } as Omit<PortfolioRow, 'accAlloc' | 'accPerDay' | 'subAlloc' | 'subPerDay' | 'netPerDayAfter' | 'netAfter' | 'netPerDayFinal' | 'netFinal'> & {
         applicable: Booster[];
       };
@@ -554,8 +704,12 @@ function computePortfolioState({
     const boosterLiftPerDay = netPerDayBeforeSub - r.netNoBoostPerDay;
 
     const baseNetFactor = r.t.dailyRate * r.t.durationDays * (1 - feeRate);
-    const breakevenAmount =
+    const insight = programInsights[r.t.id];
+    const fallbackBreakeven =
       programFee > 0 && baseNetFactor > 0 ? programFee / baseNetFactor : null;
+    const breakevenAmount = insight?.breakevenAmount ?? fallbackBreakeven;
+    const recommendedPrincipal =
+      insight?.recommendedPrincipal ?? r.recommendedPrincipal ?? r.t.recommendedPrincipal ?? null;
 
     const { boosterNetById: _ignored, ...rest } = r;
 
@@ -568,7 +722,7 @@ function computePortfolioState({
       programFee,
       programFeePerDay,
       breakevenAmount,
-      recommendedPrincipal: r.recommendedPrincipal ?? r.t.recommendedPrincipal ?? null,
+      recommendedPrincipal,
       netPerDayAfter: netPerDayBeforeSub,
       netAfter: netBeforeSub,
       netPerDayFinal: netPerDayBeforeSub - subPerDay,
@@ -593,6 +747,13 @@ function computePortfolioState({
   const subCostPerDay = rows.reduce((s, r) => s + r.subPerDay, 0);
   const programFees = rows.reduce((s, r) => s + r.programFee, 0);
   const programFeesPerDay = rows.reduce((s, r) => s + r.programFeePerDay, 0);
+  const coveredCapital = rows.reduce((sum, r) => {
+    const details = Object.values(r.boosterDetails || {});
+    if (details.length === 0) return sum;
+    const maxCoverage = details.reduce((acc, detail) => Math.max(acc, detail.coverage ?? 0), 0);
+    return sum + r.amount * Math.max(0, Math.min(1, maxCoverage));
+  }, 0);
+  const coverageShare = capital > 0 ? Math.min(1, coveredCapital / capital) : 0;
 
   const appliedBoosters = chosenAcc.filter((b) => (denomByBooster.get(b.id) || 0) > 0);
   const accCostApplied = appliedBoosters.reduce((sum, b) => sum + (b.price || 0), 0);
@@ -614,6 +775,21 @@ function computePortfolioState({
   const roi = accCostApplied > 0 ? liftNet / accCostApplied : 0;
   const paybackHours =
     boosterNetPerActiveHourBeforeCost > 0 ? accCostApplied / boosterNetPerActiveHourBeforeCost : null;
+
+  const programSummary: ProgramSummary = (() => {
+    const values = Object.values(programInsights);
+    const relevant = values.filter(
+      (insight) => insight.tariff.entryFee > 0 && tariffAccessible(insight.tariff, userLevel, activeSubId)
+    );
+    if (relevant.length === 0) {
+      return { count: 0, avgPremium: null, flagged: 0 };
+    }
+    const avgPremium =
+      relevant.reduce((sum, insight) => sum + Math.max(0, insight.premiumAtTarget ?? 0), 0) /
+      relevant.length;
+    const flagged = relevant.filter((insight) => !insight.requirementMet).length;
+    return { count: relevant.length, avgPremium, flagged };
+  })();
 
   const project30 = (subId: string, mode: 'no-reinvest' | 'auto-roll') => {
     const sub = SUBSCRIPTIONS.find((s) => s.id === subId)!;
@@ -701,12 +877,17 @@ function computePortfolioState({
       liftNet,
       liftPerPlanDay,
       liftPerActiveHour,
+      activeHours: boosterActiveHoursTotal,
+      netBeforeCost: boosterNetBeforeCost,
+      netAfterCost: liftNet,
+      netAfterCostPerHour: liftPerActiveHour,
       spend: accCostApplied,
       roi,
       paybackHours,
-      activeHours: boosterActiveHoursTotal,
-      netBeforeCost: boosterNetBeforeCost
-    }
+      coverageShare
+    },
+    programInsights,
+    programSummary
   };
 }
 
@@ -820,7 +1001,8 @@ function runSelfTests() {
     accountBoosters: [],
     tariffs: [programNormalized],
     activeSubId: 'free',
-    userLevel: 5
+    userLevel: 5,
+    programControls: DEFAULT_PROGRAM_CONTROLS
   });
   console.assert(programState.rows[0].programFee === 20, 'program fee should be tracked on row');
   console.assert(programState.totals.programFees === 20, 'program fee should hit totals');
@@ -828,6 +1010,26 @@ function runSelfTests() {
     programState.rows[0].breakevenAmount != null && programState.rows[0].breakevenAmount > 0,
     'breakeven amount should be computed for program'
   );
+
+  const designInsights = buildProgramInsights(
+    INIT_TARIFFS,
+    6,
+    'free',
+    SUBSCRIPTIONS[0].fee,
+    DEFAULT_PROGRAM_CONTROLS
+  );
+  const comboInsight = designInsights['p_combo30'];
+  console.assert(comboInsight != null, 'combo insight should be produced');
+  if (comboInsight) {
+    console.assert(
+      comboInsight.recommendedPrincipal == null || comboInsight.recommendedPrincipal >= comboInsight.tariff.baseMin,
+      'recommended principal should not drop below base minimum'
+    );
+    console.assert(
+      comboInsight.maxEntryFeeForTarget != null,
+      'entry fee ceiling should be available for combo insight'
+    );
+  }
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -913,6 +1115,11 @@ export default function ArbPlanBuilder() {
   const [pricingControls, setPricingControls] = useState<PricingControls>(() =>
     persisted?.pricing ? { ...DEFAULT_PRICING, ...persisted.pricing } : DEFAULT_PRICING
   );
+  const [programControls, setProgramControls] = useState<ProgramDesignControls>(() =>
+    persisted?.programDesign
+      ? { ...DEFAULT_PROGRAM_CONTROLS, ...persisted.programDesign }
+      : DEFAULT_PROGRAM_CONTROLS
+  );
   const activeSub = SUBSCRIPTIONS.find((s) => s.id === activeSubId) || SUBSCRIPTIONS[0];
   const boosters = useMemo(
     () =>
@@ -995,10 +1202,19 @@ export default function ArbPlanBuilder() {
         accountBoosters,
         tariffs,
         activeSubId,
-        userLevel
+        userLevel,
+        programControls
       }),
-    [portfolio, boosters, accountBoosters, tariffs, activeSubId, userLevel]
+    [portfolio, boosters, accountBoosters, tariffs, activeSubId, userLevel, programControls]
   );
+
+  const rowMap = useMemo(() => {
+    const map = new Map<string, PortfolioRow>();
+    for (const row of computed.rows) {
+      map.set(row.key, row);
+    }
+    return map;
+  }, [computed.rows]);
 
   useEffect(() => {
     try {
@@ -1056,10 +1272,11 @@ export default function ArbPlanBuilder() {
     const payload: PersistedState = {
       tariffs,
       boosters: boostersRaw,
-      pricing: pricingControls
+      pricing: pricingControls,
+      programDesign: programControls
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [tariffs, boostersRaw, pricingControls]);
+  }, [tariffs, boostersRaw, pricingControls, programControls]);
 
   return (
     <div className="grid" style={{ gap: 24 }}>
@@ -1147,6 +1364,14 @@ export default function ArbPlanBuilder() {
               инвестору бонус в процентах от стоимости бустера.
             </p>
             <PricingEditor pricing={pricingControls} setPricing={setPricingControls} />
+          </div>
+          <div className="card">
+            <h2 className="section-title">Премия платных программ</h2>
+            <p className="section-subtitle">
+              Задайте минимальную премию к бесплатным тарифам и запас по депозиту, чтобы автоматически рассчитывать рекомендуемые
+              суммы и допустимый вход для программ.
+            </p>
+            <ProgramDesignEditor controls={programControls} setControls={setProgramControls} />
           </div>
         </div>
       )}
@@ -1291,7 +1516,8 @@ export default function ArbPlanBuilder() {
                     tariffs={tariffs}
                     boosters={boosters}
                     accountBoosters={accountBoosters}
-                    rowData={computed.rows.find((r) => r.key === item.id)}
+                    rowData={rowMap.get(item.id)}
+                    insight={computed.programInsights[item.tariffId]}
                   />
                 ))}
               </div>
@@ -1341,6 +1567,10 @@ export default function ArbPlanBuilder() {
                   </span>
                 </div>
                 <div className="flex-between">
+                  <span>Покрытие бустерами:</span>
+                  <span>{fmtPercent(computed.boosterSummary.coverageShare, 0)}</span>
+                </div>
+                <div className="flex-between">
                   <span>Бонус до оплаты бустеров:</span>
                   <span>{fmtMoney(computed.boosterSummary.netBeforeCost, currency)}</span>
                 </div>
@@ -1366,6 +1596,14 @@ export default function ArbPlanBuilder() {
                 <div className="flex-between">
                   <span>Подписка (30d):</span>
                   <span>{fmtMoney(computed.totals.subCost, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Платные программы:</span>
+                  <span>
+                    {computed.programSummary.count > 0
+                      ? `${computed.programSummary.count} • ${fmtPercent(computed.programSummary.avgPremium, 1)}`
+                      : '—'}
+                  </span>
                 </div>
                 <div className="flex-between" style={{ marginTop: 8, borderTop: '1px solid #e2e8f0', paddingTop: 8 }}>
                   <span>Инвестору (после всего):</span>
@@ -1448,6 +1686,13 @@ export default function ArbPlanBuilder() {
                 const baseNetFactor = t.dailyRate * t.durationDays * (1 - activeSub.fee);
                 const breakeven =
                   t.entryFee > 0 && baseNetFactor > 0 ? t.entryFee / baseNetFactor : null;
+                const insight = computed.programInsights[t.id];
+                const recommended = insight?.recommendedPrincipal ?? t.recommendedPrincipal ?? null;
+                const premiumInfo = insight?.premiumAtTarget ?? null;
+                const premiumTarget = insight?.requiredPremium ?? null;
+                const premiumMet = insight?.requirementMet ?? false;
+                const competitorName = insight?.competitor?.name ?? 'базовым тарифам';
+                const entryFeeGap = insight?.entryFeeGap ?? null;
                 return (
                   <React.Fragment key={t.id}>
                     {categoryChanged && (
@@ -1496,7 +1741,18 @@ export default function ArbPlanBuilder() {
                         <div className="section-subtitle" style={{ color: '#0f172a' }}>
                           Безубыточность ≈{' '}
                           {breakeven && Number.isFinite(breakeven) ? fmtMoney(breakeven, currency) : '—'} • Рекомендация:{' '}
-                          {t.recommendedPrincipal ? fmtMoney(t.recommendedPrincipal, currency) : fmtMoney(t.baseMin, currency)}
+                          {recommended ? fmtMoney(recommended, currency) : fmtMoney(t.baseMin, currency)}
+                        </div>
+                      )}
+                      {t.entryFee > 0 && insight && (
+                        <div
+                          className="section-subtitle"
+                          style={{ color: premiumMet ? '#166534' : '#b45309' }}
+                        >
+                          Премия к {competitorName}: {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)}).
+                          {entryFeeGap != null && (
+                            <> Δвход: {entryFeeGap >= 0 ? '+' : ''}{fmtMoney(entryFeeGap, currency)}</>
+                          )}
                         </div>
                       )}
                       <button
@@ -1522,6 +1778,7 @@ export default function ArbPlanBuilder() {
           boosters={boostersRaw}
           currency={currency}
           pricing={pricingControls}
+          programControls={programControls}
         />
       )}
 
@@ -1538,7 +1795,7 @@ type PlannerStatsProps = {
 };
 
 function PlannerStats({ computed, currency }: PlannerStatsProps) {
-  const { totals, boosterSummary } = computed;
+  const { totals, boosterSummary, programSummary } = computed;
   const avgDailyYield = totals.capital > 0 ? totals.investorNetPerDay / totals.capital : 0;
   const boosterShare = totals.baselineNet > 0 ? boosterSummary.liftNet / totals.baselineNet : 0;
 
@@ -1574,12 +1831,32 @@ function PlannerStats({ computed, currency }: PlannerStatsProps) {
       hint: boosterSummary.liftNet > 0 ? `+${(boosterShare * 100).toFixed(1)}% к базе` : 'Без прироста'
     },
     {
+      label: 'Покрытие бустерами',
+      value: fmtPercent(boosterSummary.coverageShare, 0),
+      hint:
+        boosterSummary.coverageShare > 0
+          ? `Активные часы: ${boosterSummary.activeHours > 0 ? formatHours(boosterSummary.activeHours) : '—'}`
+          : 'Бустеры не выбраны'
+    },
+    {
       label: 'Входные взносы программ',
       value: fmtMoney(totals.programFees, currency),
       hint:
         totals.programFees > 0
           ? `${fmtMoney(totals.programFeesPerDay, currency)} в день (учёт во взносах)`
           : 'Нет платных программ в портфеле'
+    },
+    {
+      label: 'Платные программы',
+      value: programSummary.count > 0 ? `${programSummary.count} шт.` : '—',
+      hint:
+        programSummary.count > 0
+          ? `Средняя премия ${fmtPercent(programSummary.avgPremium, 1)} • ${
+              programSummary.flagged > 0
+                ? `${programSummary.flagged} требует корректировки`
+                : 'выполнено'
+            }`
+          : 'Нет активных программ'
     },
     {
       label: 'Доход проекта',
@@ -1624,6 +1901,7 @@ type TariffRowProps = {
   boosters: Booster[];
   accountBoosters: string[];
   rowData?: PortfolioRow;
+  insight?: ProgramInsight;
 };
 
 function TariffRow({
@@ -1636,13 +1914,21 @@ function TariffRow({
   tariffs,
   boosters,
   accountBoosters,
-  rowData
+  rowData,
+  insight
 }: TariffRowProps) {
   const t = tariffs.find((x) => x.id === item.tariffId)!;
   const levelOk = t.access === 'open' || withinLevel(userLevel, t.minLevel);
   const subOk = !t.reqSub || subMeets(t.reqSub, activeSubId);
   const warnLevel = !levelOk;
   const warnSub = !subOk;
+  const recommended = insight?.recommendedPrincipal ?? t.recommendedPrincipal ?? null;
+  const premiumInfo = insight?.premiumAtTarget ?? null;
+  const premiumTarget = insight?.requiredPremium ?? null;
+  const premiumMet = insight?.requirementMet ?? false;
+  const competitorName = insight?.competitor?.name ?? 'базовым тарифам';
+  const maxEntryFee = insight?.maxEntryFeeForTarget ?? null;
+  const entryFeeGap = insight?.entryFeeGap ?? null;
 
   return (
     <div className="card">
@@ -1669,9 +1955,9 @@ function TariffRow({
                 Вход {fmtMoney(t.entryFee, currency)}
               </span>
             )}
-            {t.recommendedPrincipal && (
+            {recommended && (
               <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1' }}>
-                Реком. {fmtMoney(t.recommendedPrincipal, currency)}
+                Реком. {fmtMoney(recommended, currency)}
               </span>
             )}
             {t.isLimited && (
@@ -1693,6 +1979,19 @@ function TariffRow({
         </div>
       )}
 
+      {t.category === 'program' && insight && (
+        <div className="section-subtitle" style={{ color: premiumMet ? '#166534' : '#b45309' }}>
+          {premiumMet ? '✅' : '⚠️'} Премия к {competitorName}:{' '}
+          {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)}).
+          {maxEntryFee != null && entryFeeGap != null && (
+            <>
+              {' '}Макс. вход: {fmtMoney(maxEntryFee, currency)} ({entryFeeGap >= 0 ? '+' : ''}
+              {fmtMoney(entryFeeGap, currency)} к текущему).
+            </>
+          )}
+        </div>
+      )}
+
       <label>
         <div className="section-subtitle">Сумма инвестиций</div>
         <input
@@ -1706,8 +2005,8 @@ function TariffRow({
       {t.category === 'program' && (
         <div className="section-subtitle" style={{ color: '#0f172a' }}>
           Программа списывает единоразовый входной взнос при добавлении.{' '}
-          {t.recommendedPrincipal
-            ? `Рекомендуемый депозит: ${fmtMoney(t.recommendedPrincipal, currency)}.`
+          {recommended
+            ? `Рекомендуемый депозит: ${fmtMoney(recommended, currency)}.`
             : 'Задайте комфортную сумму, чтобы окупить взнос.'}
         </div>
       )}
@@ -1717,6 +2016,7 @@ function TariffRow({
         rowData={rowData}
         boosters={boosters}
         accountBoosters={accountBoosters}
+        insight={insight}
       />
     </div>
   );
@@ -1727,9 +2027,10 @@ type RowPreviewProps = {
   rowData?: PortfolioRow;
   boosters: Booster[];
   accountBoosters: string[];
+  insight?: ProgramInsight;
 };
 
-function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreviewProps) {
+function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: RowPreviewProps) {
   const chosenAcc = accountBoosters
     .map((id) => boosters.find((b) => b.id === id))
     .filter(Boolean) as Booster[];
@@ -1763,6 +2064,10 @@ function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreview
   const programFeePerDay = rowData?.programFeePerDay ?? 0;
   const breakevenAmount = rowData?.breakevenAmount ?? null;
   const recommendedPrincipal = rowData?.recommendedPrincipal ?? null;
+  const premiumInfo = insight?.premiumAtTarget ?? null;
+  const premiumTarget = insight?.requiredPremium ?? null;
+  const premiumMet = insight?.requirementMet ?? false;
+  const competitorName = insight?.competitor?.name ?? 'базовым тарифам';
 
   const boosterNotes = rowData?.notes?.length ? rowData.notes.join(' • ') : '—';
   const details = rowData?.boosterDetails ?? {};
@@ -1841,6 +2146,15 @@ function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreview
               Рекомендация: <strong>{fmtMoney(recommendedPrincipal, currency)}</strong>
             </span>
           )}
+          {insight && (
+            <span>
+              Премия vs {competitorName}:{' '}
+              <strong>
+                {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)} •{' '}
+                {premiumMet ? 'выполнено' : 'нужно улучшить'})
+              </strong>
+            </span>
+          )}
         </div>
       </div>
 
@@ -1882,6 +2196,11 @@ type TariffEditorProps = {
 type PricingEditorProps = {
   pricing: PricingControls;
   setPricing: (pricing: PricingControls) => void;
+};
+
+type ProgramDesignEditorProps = {
+  controls: ProgramDesignControls;
+  setControls: (controls: ProgramDesignControls) => void;
 };
 
 function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
@@ -1960,6 +2279,67 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
       <div className="flex" style={{ justifyContent: 'flex-end', gap: 8 }}>
         <button className="ghost" onClick={() => setDraft(pricing)}>
           Отменить
+        </button>
+        <button className="primary" onClick={save}>
+          Сохранить
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProgramDesignEditor({ controls, setControls }: ProgramDesignEditorProps) {
+  const [draft, setDraft] = useState<ProgramDesignControls>(controls);
+
+  useEffect(() => {
+    setDraft(controls);
+  }, [controls]);
+
+  const update = <K extends keyof ProgramDesignControls>(field: K, value: ProgramDesignControls[K]) => {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const save = () => {
+    setControls({
+      relativePremiumPct: Math.max(0, draft.relativePremiumPct),
+      absolutePremiumPct: Math.max(0, draft.absolutePremiumPct),
+      bufferMultiple: Math.max(1, draft.bufferMultiple)
+    });
+  };
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <label className="field">
+        <span className="field-label">Относительная премия к бесплатным тарифам (%)</span>
+        <input
+          type="number"
+          value={draft.relativePremiumPct}
+          min={0}
+          onChange={(e) => update('relativePremiumPct', Number(e.target.value))}
+        />
+      </label>
+      <label className="field">
+        <span className="field-label">Минимальная абсолютная премия за цикл (%)</span>
+        <input
+          type="number"
+          value={draft.absolutePremiumPct}
+          min={0}
+          onChange={(e) => update('absolutePremiumPct', Number(e.target.value))}
+        />
+      </label>
+      <label className="field">
+        <span className="field-label">Множитель запаса по депозиту</span>
+        <input
+          type="number"
+          value={draft.bufferMultiple}
+          min={1}
+          step={0.1}
+          onChange={(e) => update('bufferMultiple', Number(e.target.value))}
+        />
+      </label>
+      <div className="flex" style={{ justifyContent: 'flex-end', gap: 8 }}>
+        <button className="ghost" onClick={() => setDraft(controls)}>
+          Сброс
         </button>
         <button className="primary" onClick={save}>
           Сохранить
@@ -2332,6 +2712,7 @@ type SimulationPanelProps = {
   boosters: Booster[];
   currency: string;
   pricing: PricingControls;
+  programControls: ProgramDesignControls;
 };
 
 type MmmModel = {
@@ -2343,7 +2724,15 @@ type MmmModel = {
   dailyOutflowFirst: number;
 };
 
-function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, pricing }: SimulationPanelProps) {
+function SimulationPanel({
+  segments,
+  setSegments,
+  tariffs,
+  boosters,
+  currency,
+  pricing,
+  programControls
+}: SimulationPanelProps) {
   const addSegment = () => {
     setSegments([
       ...segments,
@@ -2446,7 +2835,8 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
         accountBoosters: chosenBoosterIds,
         tariffs,
         activeSubId: segment.subscriptionId,
-        userLevel: segment.userLevel
+        userLevel: segment.userLevel,
+        programControls
       });
       const depositPerInvestor = segment.portfolio.reduce((sum, item) => sum + item.amount, 0);
       return {
@@ -2460,7 +2850,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
         planRows: computed.rows
       };
     });
-  }, [segments, tariffs, boosters, pricing]);
+  }, [segments, tariffs, boosters, pricing, programControls]);
 
   const totals = useMemo(() => {
     let investorsTotal = 0;

@@ -38,9 +38,10 @@ After the dependencies are installed, start the development server with `npm run
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
 - Expanded tariff catalogue with level-gated plans and open-access programmes that can be launched without level requirements
 - Programme entry fees with automatic break-even analytics, recommended deposit hints and amortised accounting in portfolio stats
+- Programme premium controls to enforce relative/absolute lift versus free tariffs, compute recommended deposits and cap entry fees while tracking portfolio-level premium health
 - Editors for quickly prototyping new tariffs (with slot limits, category/access toggles) and boosters (with block lists)
 - Simulation lab for modeling multiple investor cohorts, aggregating deposits, payouts and project revenue streams
 - MMM-style survival model that charts how long reserves last without new deposits, complete with reserve vs. time visualisation
-- Local persistence of tariff/booster catalogs and pricing controls via `localStorage`
+- Local persistence of tariff/booster catalogs plus booster pricing and programme premium controls via `localStorage`
 
 Self-tests covering ROI maths and pricing safeguards execute automatically on load (see `runSelfTests` inside `ArbPlanBuilder.tsx`).
