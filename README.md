@@ -19,7 +19,15 @@ npm install
 npm run dev
 ```
 
-The development server will start on http://localhost:5173/ by default.
+If you are working behind a corporate proxy or a locked-down environment, you might need to explicitly allow access to the npm registry:
+
+```bash
+npm install --registry=https://registry.npmjs.org/
+```
+
+After the dependencies are installed, start the development server with `npm run dev` and open http://localhost:5173/ in your browser.
+
+> **Troubleshooting tip:** in offline sandboxes (such as the evaluation environment used to produce this patch) the install step fails with a `403 Forbidden` error because external network access is blocked. In that case, clone the repository to a machine with internet access and run the commands above there.
 
 ## Key capabilities
 
