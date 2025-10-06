@@ -24,6 +24,8 @@ type Tariff = {
   capSlots: number | null;
   category: TariffCategory;
   access: TariffAccess;
+  entryFee: number;
+  recommendedPrincipal: number | null;
 };
 
 type Booster = {
@@ -69,6 +71,10 @@ type PortfolioRow = {
   boosterLift: number;
   boosterLiftPerDay: number;
   boosterDetails: Record<string, { netGain: number; priceShare: number; paybackHours: number | null; coverage: number }>;
+  programFee: number;
+  programFeePerDay: number;
+  breakevenAmount: number | null;
+  recommendedPrincipal: number | null;
 };
 
 type Totals = {
@@ -88,6 +94,8 @@ type Totals = {
   accountCostPerDay: number;
   subCostPerDay: number;
   projectRevenuePerDay: number;
+  programFees: number;
+  programFeesPerDay: number;
 };
 
 type ProjectionEntry = {
@@ -165,34 +173,42 @@ const SUBSCRIPTIONS: Subscription[] = [
 ];
 
 const INIT_TARIFFS: Tariff[] = [
-  { id: 't_start', name: 'Start Day', durationDays: 1, dailyRate: 0.003, minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_weekly_a', name: 'Weekly A', durationDays: 7, dailyRate: 0.004, minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_weekly_b', name: 'Weekly B', durationDays: 7, dailyRate: 0.005, minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_flex14', name: 'Flex 14', durationDays: 14, dailyRate: 0.006, minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_month_std', name: 'Month Std', durationDays: 30, dailyRate: 0.0065, minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_month_plus', name: 'Month Plus', durationDays: 30, dailyRate: 0.0075, minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_quarter', name: 'Quarter 90', durationDays: 90, dailyRate: 0.008, minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, dailyRate: 0.0065, minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 100, category: 'plan', access: 'level' },
-  { id: 't_express3', name: 'Express 3d', durationDays: 3, dailyRate: 0.007, minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200, category: 'plan', access: 'level' },
-  { id: 't_mm30', name: 'Market Making 30', durationDays: 30, dailyRate: 0.009, minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 50, category: 'plan', access: 'level' },
-  { id: 't_global60', name: 'Global 60', durationDays: 60, dailyRate: 0.0095, minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 40, category: 'plan', access: 'level' },
-  { id: 't_prime45', name: 'Prime 45', durationDays: 45, dailyRate: 0.01, minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 30, category: 'plan', access: 'level' },
-  { id: 't_flash7', name: 'Flash Seven', durationDays: 7, dailyRate: 0.011, minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 70, category: 'plan', access: 'level' },
-  { id: 't_dual21', name: 'Dual 21', durationDays: 21, dailyRate: 0.0072, minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_swing28', name: 'Swing 28', durationDays: 28, dailyRate: 0.0083, minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_spot18', name: 'Spot 18', durationDays: 18, dailyRate: 0.0078, minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 't_meta60', name: 'Meta 60', durationDays: 60, dailyRate: 0.0105, minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 25, category: 'plan', access: 'level' },
-  { id: 't_spread10', name: 'Spread 10', durationDays: 10, dailyRate: 0.0068, minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 120, category: 'plan', access: 'level' },
-  { id: 't_quant90', name: 'Quant 90', durationDays: 90, dailyRate: 0.0098, minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 35, category: 'plan', access: 'level' },
-  { id: 't_event5', name: 'Event 5', durationDays: 5, dailyRate: 0.012, minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20, category: 'plan', access: 'level' },
-  { id: 't_ai45', name: 'AI 45', durationDays: 45, dailyRate: 0.0112, minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 40, category: 'plan', access: 'level' },
-  { id: 't_yield75', name: 'Yield 75', durationDays: 75, dailyRate: 0.0089, minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
-  { id: 'p_combo30', name: 'Combo 30', durationDays: 30, dailyRate: 0.0068, minLevel: 1, baseMin: 150, baseMax: 3200, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open' },
-  { id: 'p_scalp7', name: 'Scalp 7', durationDays: 7, dailyRate: 0.0092, minLevel: 1, baseMin: 120, baseMax: 2500, reqSub: null, isLimited: true, capSlots: 60, category: 'program', access: 'open' },
-  { id: 'p_loyal30', name: 'Loyalty 30', durationDays: 30, dailyRate: 0.007, minLevel: 1, baseMin: 200, baseMax: 5000, reqSub: 'bronze', isLimited: false, capSlots: null, category: 'program', access: 'open' },
-  { id: 'p_airdrop14', name: 'Airdrop 14', durationDays: 14, dailyRate: 0.0115, minLevel: 1, baseMin: 250, baseMax: 4200, reqSub: null, isLimited: true, capSlots: 100, category: 'program', access: 'open' },
-  { id: 'p_escalate21', name: 'Escalate 21', durationDays: 21, dailyRate: 0.0085, minLevel: 1, baseMin: 300, baseMax: 6500, reqSub: 'silver', isLimited: false, capSlots: null, category: 'program', access: 'open' },
-  { id: 'p_wave60', name: 'Wave 60', durationDays: 60, dailyRate: 0.0093, minLevel: 1, baseMin: 500, baseMax: 15000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'program', access: 'open' }
+  { id: 't_start', name: 'Start Day', durationDays: 1, dailyRate: 0.003, minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_weekly_a', name: 'Weekly A', durationDays: 7, dailyRate: 0.004, minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_weekly_b', name: 'Weekly B', durationDays: 7, dailyRate: 0.005, minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_flex14', name: 'Flex 14', durationDays: 14, dailyRate: 0.006, minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_month_std', name: 'Month Std', durationDays: 30, dailyRate: 0.0065, minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_month_plus', name: 'Month Plus', durationDays: 30, dailyRate: 0.0075, minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_quarter', name: 'Quarter 90', durationDays: 90, dailyRate: 0.008, minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, dailyRate: 0.0065, minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 100, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_express3', name: 'Express 3d', durationDays: 3, dailyRate: 0.007, minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_mm30', name: 'Market Making 30', durationDays: 30, dailyRate: 0.009, minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 50, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_global60', name: 'Global 60', durationDays: 60, dailyRate: 0.0095, minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 40, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_prime45', name: 'Prime 45', durationDays: 45, dailyRate: 0.01, minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 30, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_flash7', name: 'Flash Seven', durationDays: 7, dailyRate: 0.011, minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 70, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_dual21', name: 'Dual 21', durationDays: 21, dailyRate: 0.0072, minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_swing28', name: 'Swing 28', durationDays: 28, dailyRate: 0.0083, minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_spot18', name: 'Spot 18', durationDays: 18, dailyRate: 0.0078, minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_meta60', name: 'Meta 60', durationDays: 60, dailyRate: 0.0105, minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 25, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_spread10', name: 'Spread 10', durationDays: 10, dailyRate: 0.0068, minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 120, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_quant90', name: 'Quant 90', durationDays: 90, dailyRate: 0.0098, minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 35, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_event5', name: 'Event 5', durationDays: 5, dailyRate: 0.012, minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_ai45', name: 'AI 45', durationDays: 45, dailyRate: 0.0112, minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 40, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 't_yield75', name: 'Yield 75', durationDays: 75, dailyRate: 0.0089, minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null },
+  { id: 'p_combo30', name: 'Combo 30', durationDays: 30, dailyRate: 0.0068, minLevel: 1, baseMin: 150, baseMax: 3200, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 25, recommendedPrincipal: 300 },
+  { id: 'p_scalp7', name: 'Scalp 7', durationDays: 7, dailyRate: 0.0092, minLevel: 1, baseMin: 120, baseMax: 2500, reqSub: null, isLimited: true, capSlots: 60, category: 'program', access: 'open', entryFee: 12, recommendedPrincipal: 400 },
+  { id: 'p_loyal30', name: 'Loyalty 30', durationDays: 30, dailyRate: 0.007, minLevel: 1, baseMin: 200, baseMax: 5000, reqSub: 'bronze', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 29, recommendedPrincipal: 450 },
+  { id: 'p_airdrop14', name: 'Airdrop 14', durationDays: 14, dailyRate: 0.0115, minLevel: 1, baseMin: 250, baseMax: 4200, reqSub: null, isLimited: true, capSlots: 100, category: 'program', access: 'open', entryFee: 19, recommendedPrincipal: 320 },
+  { id: 'p_escalate21', name: 'Escalate 21', durationDays: 21, dailyRate: 0.0085, minLevel: 1, baseMin: 300, baseMax: 6500, reqSub: 'silver', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 35, recommendedPrincipal: 550 },
+  { id: 'p_wave60', name: 'Wave 60', durationDays: 60, dailyRate: 0.0093, minLevel: 1, baseMin: 500, baseMax: 15000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 99, recommendedPrincipal: 900 },
+  { id: 'p_flash3', name: 'Flash 3', durationDays: 3, dailyRate: 0.015, minLevel: 1, baseMin: 150, baseMax: 2000, reqSub: null, isLimited: true, capSlots: 120, category: 'program', access: 'open', entryFee: 5, recommendedPrincipal: 250 },
+  { id: 'p_launch10', name: 'Launchpad 10', durationDays: 10, dailyRate: 0.0105, minLevel: 1, baseMin: 220, baseMax: 4000, reqSub: null, isLimited: true, capSlots: 90, category: 'program', access: 'open', entryFee: 18, recommendedPrincipal: 450 },
+  { id: 'p_sprint20', name: 'Sprint 20', durationDays: 20, dailyRate: 0.009, minLevel: 1, baseMin: 300, baseMax: 6500, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 45, recommendedPrincipal: 700 },
+  { id: 'p_diversify14', name: 'Diversify 14', durationDays: 14, dailyRate: 0.0098, minLevel: 1, baseMin: 240, baseMax: 4800, reqSub: null, isLimited: true, capSlots: 80, category: 'program', access: 'open', entryFee: 28, recommendedPrincipal: 500 },
+  { id: 'p_quantum45', name: 'Quantum 45', durationDays: 45, dailyRate: 0.0108, minLevel: 1, baseMin: 700, baseMax: 9000, reqSub: 'silver', isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 120, recommendedPrincipal: 1200 },
+  { id: 'p_hedge30', name: 'Hedge 30', durationDays: 30, dailyRate: 0.0078, minLevel: 1, baseMin: 260, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 40, recommendedPrincipal: 650 },
+  { id: 'p_passive90', name: 'Passive 90', durationDays: 90, dailyRate: 0.0088, minLevel: 1, baseMin: 800, baseMax: 15000, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 180, recommendedPrincipal: 1500 },
+  { id: 'p_metaelite60', name: 'Meta Elite 60', durationDays: 60, dailyRate: 0.0115, minLevel: 1, baseMin: 1500, baseMax: 24000, reqSub: 'gold', isLimited: true, capSlots: 60, category: 'program', access: 'open', entryFee: 210, recommendedPrincipal: 2500 }
 ];
 
 const BASE_BOOSTERS: Booster[] = [
@@ -278,8 +294,8 @@ function describePayback(hours: number | null, activeHours?: number) {
 
 const DEFAULT_PRICING: PricingControls = {
   baseCapturePct: 65,
-  whaleCapturePct: 45,
-  investorRoiFloorPct: 120,
+  whaleCapturePct: 90,
+  investorRoiFloorPct: 20,
   minPrice: 0.5,
   maxPrice: 1_000_000
 };
@@ -308,7 +324,12 @@ function normalizeTariff(t: any): Tariff {
         ? null
         : Number(t.capSlots),
     category: t?.category === 'program' ? 'program' : 'plan',
-    access: t?.access === 'open' ? 'open' : 'level'
+    access: t?.access === 'open' ? 'open' : 'level',
+    entryFee: Number(t?.entryFee ?? 0),
+    recommendedPrincipal:
+      t?.recommendedPrincipal === null || t?.recommendedPrincipal === undefined || t?.recommendedPrincipal === ''
+        ? null
+        : Number(t.recommendedPrincipal)
   };
 }
 
@@ -435,6 +456,9 @@ function computePortfolioState({
       let multiplier = 1;
       const notes: string[] = [];
       const boosterNetById: Record<string, number> = {};
+      const duration = t.durationDays > 0 ? t.durationDays : 1;
+      const programFee = t.entryFee ?? 0;
+      const programFeePerDay = duration > 0 ? programFee / duration : programFee;
       for (const b of applicable) {
         const cov = Math.min(b.durationHours, hours) / hours;
         const mul = boosterCoverageMultiplier(b.effect.value, cov);
@@ -455,7 +479,8 @@ function computePortfolioState({
       const dailyGrossBase = amount * t.dailyRate;
       const grossBase = dailyGrossBase * t.durationDays;
       const feeBase = grossBase * feeRate;
-      const netBase = grossBase - feeBase;
+      const netBase = grossBase - feeBase - programFee;
+      const netBasePerDay = duration > 0 ? netBase / duration : netBase;
 
       return {
         key: item.id,
@@ -469,8 +494,11 @@ function computePortfolioState({
         gross,
         fee,
         netNoBoost: netBase,
-        netNoBoostPerDay: netBase / t.durationDays,
-        boosterNetById
+        netNoBoostPerDay: netBasePerDay,
+        boosterNetById,
+        programFee,
+        programFeePerDay,
+        recommendedPrincipal: t.recommendedPrincipal ?? null
       } as Omit<PortfolioRow, 'accAlloc' | 'accPerDay' | 'subAlloc' | 'subPerDay' | 'netPerDayAfter' | 'netAfter' | 'netPerDayFinal' | 'netFinal'> & {
         applicable: Booster[];
       };
@@ -510,17 +538,24 @@ function computePortfolioState({
         coverage
       };
     }
-    const accPerDay = accAlloc / r.t.durationDays;
+    const duration = r.t.durationDays > 0 ? r.t.durationDays : 1;
+    const accPerDay = duration > 0 ? accAlloc / duration : accAlloc;
+    const programFee = r.programFee ?? 0;
+    const programFeePerDay = r.programFeePerDay ?? (duration > 0 ? programFee / duration : programFee);
 
-    const netPerDayBeforeSub = r.dailyGross - r.feePerDay - accPerDay;
-    const netBeforeSub = r.gross - r.fee - accAlloc;
+    const netPerDayBeforeSub = r.dailyGross - r.feePerDay - accPerDay - programFeePerDay;
+    const netBeforeSub = r.gross - r.fee - accAlloc - programFee;
 
     const subShare = capDaysAll ? (r.amount * r.t.durationDays) / capDaysAll : 0;
     const subAlloc = subCost * subShare;
-    const subPerDay = subAlloc / r.t.durationDays;
+    const subPerDay = duration > 0 ? subAlloc / duration : subAlloc;
 
     const boosterLift = netBeforeSub - r.netNoBoost;
     const boosterLiftPerDay = netPerDayBeforeSub - r.netNoBoostPerDay;
+
+    const baseNetFactor = r.t.dailyRate * r.t.durationDays * (1 - feeRate);
+    const breakevenAmount =
+      programFee > 0 && baseNetFactor > 0 ? programFee / baseNetFactor : null;
 
     const { boosterNetById: _ignored, ...rest } = r;
 
@@ -530,6 +565,10 @@ function computePortfolioState({
       accPerDay,
       subAlloc,
       subPerDay,
+      programFee,
+      programFeePerDay,
+      breakevenAmount,
+      recommendedPrincipal: r.recommendedPrincipal ?? r.t.recommendedPrincipal ?? null,
       netPerDayAfter: netPerDayBeforeSub,
       netAfter: netBeforeSub,
       netPerDayFinal: netPerDayBeforeSub - subPerDay,
@@ -552,12 +591,14 @@ function computePortfolioState({
   const feePerDayTotal = rows.reduce((s, r) => s + r.feePerDay, 0);
   const accountCostPerDay = rows.reduce((s, r) => s + r.accPerDay, 0);
   const subCostPerDay = rows.reduce((s, r) => s + r.subPerDay, 0);
+  const programFees = rows.reduce((s, r) => s + r.programFee, 0);
+  const programFeesPerDay = rows.reduce((s, r) => s + r.programFeePerDay, 0);
 
   const appliedBoosters = chosenAcc.filter((b) => (denomByBooster.get(b.id) || 0) > 0);
   const accCostApplied = appliedBoosters.reduce((sum, b) => sum + (b.price || 0), 0);
 
-  const projectRevenue = feeTotal + accCostApplied + subCost;
-  const projectRevenuePerDay = feePerDayTotal + accountCostPerDay + subCostPerDay;
+  const projectRevenue = feeTotal + accCostApplied + subCost + programFees;
+  const projectRevenuePerDay = feePerDayTotal + accountCostPerDay + subCostPerDay + programFeesPerDay;
 
   const liftNet = rows.reduce((s, r) => s + r.boosterLift, 0);
   const liftPerPlanDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
@@ -595,6 +636,7 @@ function computePortfolioState({
 
     let total = 0;
     let oneTimeAccCost = 0;
+    let oneTimeProgramFee = 0;
 
     for (const r of base) {
       const projDays = mode === 'auto-roll' ? 30 : Math.min(30, r.t.durationDays);
@@ -606,11 +648,13 @@ function computePortfolioState({
         accAllocLocal += b.price * share;
       }
       oneTimeAccCost += accAllocLocal;
+      oneTimeProgramFee += r.programFee ?? 0;
 
       const netPerDayBefore = r.dailyGross - r.feePerDay;
       total += netPerDayBefore * projDays;
     }
     total -= oneTimeAccCost;
+    total -= oneTimeProgramFee;
     total -= subCostLocal;
     return total;
   };
@@ -648,7 +692,9 @@ function computePortfolioState({
       feePerDayTotal,
       accountCostPerDay,
       subCostPerDay,
-      projectRevenuePerDay
+      projectRevenuePerDay,
+      programFees,
+      programFeesPerDay
     },
     projection30,
     boosterSummary: {
@@ -756,6 +802,32 @@ function runSelfTests() {
   });
   console.assert(openNormalized.access === 'open' && openNormalized.category === 'program', 'normalizeTariff keeps flags');
   console.assert(tariffAccessible(openNormalized, 1, 'free'), 'open tariff ignores level');
+
+  const programNormalized = normalizeTariff({
+    id: 'prog',
+    name: 'Program',
+    durationDays: 10,
+    dailyRate: 0.01,
+    baseMin: 200,
+    baseMax: 2000,
+    entryFee: 20,
+    category: 'program',
+    access: 'open'
+  });
+  const programState = computePortfolioState({
+    portfolio: [{ id: 'p-test', tariffId: 'prog', amount: 300 }],
+    boosters: [],
+    accountBoosters: [],
+    tariffs: [programNormalized],
+    activeSubId: 'free',
+    userLevel: 5
+  });
+  console.assert(programState.rows[0].programFee === 20, 'program fee should be tracked on row');
+  console.assert(programState.totals.programFees === 20, 'program fee should hit totals');
+  console.assert(
+    programState.rows[0].breakevenAmount != null && programState.rows[0].breakevenAmount > 0,
+    'breakeven amount should be computed for program'
+  );
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -1363,12 +1435,19 @@ export default function ArbPlanBuilder() {
 
           <div className="card" style={{ display: 'grid', gap: 16 }}>
             <h2 className="section-title">Доступные тарифы</h2>
+            <p className="section-subtitle">
+              Тарифы не требуют входных платежей и доступны по уровню. Программы можно купить независимо от уровня,
+              но они содержат единоразовый входной взнос, поэтому важно подобрать сумму депозита, чтобы окупить его.
+            </p>
             <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
               {sortedTariffs.map((t, idx, arr) => {
                 const used = tariffSlotsUsed.get(t.id) || 0;
                 const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
                 const locked = !tariffAccessible(t, userLevel, activeSubId);
                 const categoryChanged = idx === 0 || arr[idx - 1].category !== t.category;
+                const baseNetFactor = t.dailyRate * t.durationDays * (1 - activeSub.fee);
+                const breakeven =
+                  t.entryFee > 0 && baseNetFactor > 0 ? t.entryFee / baseNetFactor : null;
                 return (
                   <React.Fragment key={t.id}>
                     {categoryChanged && (
@@ -1408,6 +1487,18 @@ export default function ArbPlanBuilder() {
                       <div className="section-subtitle">
                         Депозит: {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
                       </div>
+                      {t.entryFee > 0 && (
+                        <div className="section-subtitle" style={{ color: '#b91c1c' }}>
+                          Входной взнос: {fmtMoney(t.entryFee, currency)}
+                        </div>
+                      )}
+                      {t.entryFee > 0 && (
+                        <div className="section-subtitle" style={{ color: '#0f172a' }}>
+                          Безубыточность ≈{' '}
+                          {breakeven && Number.isFinite(breakeven) ? fmtMoney(breakeven, currency) : '—'} • Рекомендация:{' '}
+                          {t.recommendedPrincipal ? fmtMoney(t.recommendedPrincipal, currency) : fmtMoney(t.baseMin, currency)}
+                        </div>
+                      )}
                       <button
                         className="primary"
                         style={{ width: '100%' }}
@@ -1481,6 +1572,14 @@ function PlannerStats({ computed, currency }: PlannerStatsProps) {
       label: 'Лифт от бустеров',
       value: fmtMoney(boosterSummary.liftNet, currency),
       hint: boosterSummary.liftNet > 0 ? `+${(boosterShare * 100).toFixed(1)}% к базе` : 'Без прироста'
+    },
+    {
+      label: 'Входные взносы программ',
+      value: fmtMoney(totals.programFees, currency),
+      hint:
+        totals.programFees > 0
+          ? `${fmtMoney(totals.programFeesPerDay, currency)} в день (учёт во взносах)`
+          : 'Нет платных программ в портфеле'
     },
     {
       label: 'Доход проекта',
@@ -1565,6 +1664,16 @@ function TariffRow({
             <span className="badge">
               {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
             </span>
+            {t.entryFee > 0 && (
+              <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
+                Вход {fmtMoney(t.entryFee, currency)}
+              </span>
+            )}
+            {t.recommendedPrincipal && (
+              <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                Реком. {fmtMoney(t.recommendedPrincipal, currency)}
+              </span>
+            )}
             {t.isLimited && (
               <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
                 Лимит {t.capSlots}
@@ -1593,6 +1702,15 @@ function TariffRow({
           onChange={(e) => updateAmount(item.id, Number(e.target.value))}
         />
       </label>
+
+      {t.category === 'program' && (
+        <div className="section-subtitle" style={{ color: '#0f172a' }}>
+          Программа списывает единоразовый входной взнос при добавлении.{' '}
+          {t.recommendedPrincipal
+            ? `Рекомендуемый депозит: ${fmtMoney(t.recommendedPrincipal, currency)}.`
+            : 'Задайте комфортную сумму, чтобы окупить взнос.'}
+        </div>
+      )}
 
       <RowPreview
         currency={currency}
@@ -1637,10 +1755,14 @@ function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreview
   const netBeforeBoosters = rowData?.netNoBoost ?? 0;
   const netWithBoosters = rowData?.netAfter ?? netBeforeBoosters;
   const netFinal = rowData?.netFinal ?? netWithBoosters;
-  const netPerDay = rowData?.netPerDayAfter ?? (rowData?.netNoBoostPerDay ?? 0);
-  const netPerDayFinal = rowData?.netPerDayFinal ?? netPerDay;
+  const netPerDayBeforeSub = rowData?.netPerDayAfter ?? (rowData?.netNoBoostPerDay ?? 0);
+  const netPerDayFinal = rowData?.netPerDayFinal ?? netPerDayBeforeSub;
   const boosterLift = rowData?.boosterLift ?? 0;
   const boosterLiftPerDay = rowData?.boosterLiftPerDay ?? 0;
+  const programFee = rowData?.programFee ?? 0;
+  const programFeePerDay = rowData?.programFeePerDay ?? 0;
+  const breakevenAmount = rowData?.breakevenAmount ?? null;
+  const recommendedPrincipal = rowData?.recommendedPrincipal ?? null;
 
   const boosterNotes = rowData?.notes?.length ? rowData.notes.join(' • ') : '—';
   const details = rowData?.boosterDetails ?? {};
@@ -1688,6 +1810,9 @@ function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreview
             Инвестору (после бустеров): <strong>{fmtMoney(netWithBoosters, currency)}</strong>
           </span>
           <span>
+            В день (без подписки): <strong>{fmtMoney(netPerDayBeforeSub, currency)}</strong>
+          </span>
+          <span>
             Начисление в день (после всех вычетов): <strong>{fmtMoney(netPerDayFinal, currency)}</strong>
           </span>
           <span>
@@ -1696,6 +1821,26 @@ function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreview
           <span>
             Прирост/день: <strong>{fmtMoney(boosterLiftPerDay, currency)}</strong>
           </span>
+          {programFee > 0 && (
+            <span>
+              Вход программы: <strong>{fmtMoney(programFee, currency)}</strong>
+            </span>
+          )}
+          {programFeePerDay > 0 && (
+            <span>
+              Амортизация входа: <strong>{fmtMoney(programFeePerDay, currency)}</strong>/день
+            </span>
+          )}
+          {breakevenAmount != null && Number.isFinite(breakevenAmount) && (
+            <span>
+              Безубыточность ≥ <strong>{fmtMoney(breakevenAmount, currency)}</strong>
+            </span>
+          )}
+          {recommendedPrincipal && (
+            <span>
+              Рекомендация: <strong>{fmtMoney(recommendedPrincipal, currency)}</strong>
+            </span>
+          )}
         </div>
       </div>
 
@@ -1860,7 +2005,9 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
         isLimited: false,
         capSlots: null,
         category: 'plan',
-        access: 'level'
+        access: 'level',
+        entryFee: 0,
+        recommendedPrincipal: null
       }
     ]);
   };
@@ -1893,6 +2040,8 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
               <th>Мин Lv</th>
               <th>Мин</th>
               <th>Макс</th>
+              <th>Входной взнос</th>
+              <th>Реком. депозит</th>
               <th>Req sub</th>
               <th>Лимит?</th>
               <th>Слоты</th>
@@ -1951,6 +2100,27 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
                     type="number"
                     value={t.baseMax}
                     onChange={(e) => update(t.id, 'baseMax', Number(e.target.value))}
+                  />
+                </td>
+                <td style={{ width: 110 }}>
+                  <input
+                    type="number"
+                    value={t.entryFee}
+                    onChange={(e) => update(t.id, 'entryFee', Number(e.target.value))}
+                  />
+                </td>
+                <td style={{ width: 120 }}>
+                  <input
+                    type="number"
+                    value={t.recommendedPrincipal ?? ''}
+                    placeholder="—"
+                    onChange={(e) =>
+                      update(
+                        t.id,
+                        'recommendedPrincipal',
+                        e.target.value === '' ? null : Number(e.target.value)
+                      )
+                    }
                   />
                 </td>
                 <td style={{ width: 120 }}>
@@ -2309,6 +2479,8 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
     let boosterLiftPerActiveHourTotal = 0;
     let boosterActiveHoursTotal = 0;
     let boosterNetBeforeCostTotal = 0;
+    let programFeeTotal = 0;
+    let programFeePerDayTotal = 0;
 
     segmentSummaries.forEach(({ segment, computed, depositPerInvestor }) => {
       investorsTotal += segment.investors;
@@ -2328,6 +2500,8 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
       boosterLiftPerActiveHourTotal += computed.boosterSummary.liftPerActiveHour * multiplier;
       boosterActiveHoursTotal += computed.boosterSummary.activeHours * multiplier;
       boosterNetBeforeCostTotal += computed.boosterSummary.netBeforeCost * multiplier;
+      programFeeTotal += computed.totals.programFees * multiplier;
+      programFeePerDayTotal += computed.totals.programFeesPerDay * multiplier;
     });
 
     return {
@@ -2346,7 +2520,9 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
       boosterLiftPerPlanDayTotal,
       boosterLiftPerActiveHourTotal,
       boosterActiveHoursTotal,
-      boosterNetBeforeCostTotal
+      boosterNetBeforeCostTotal,
+      programFeeTotal,
+      programFeePerDayTotal
     };
   }, [segmentSummaries]);
 
@@ -2479,6 +2655,10 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
         <div className="sim-summary-card">
           <h4>Выручка от подписок</h4>
           <p>{fmtMoney(totals.subscriptionRevenueTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Входные взносы программ</h4>
+          <p>{fmtMoney(totals.programFeeTotal, currency)}</p>
         </div>
         <div className="sim-summary-card">
           <h4>Лифт от бустеров</h4>
@@ -2758,6 +2938,11 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
                             )
                           : '—'}
                       </td>
+                    </tr>
+                    <tr>
+                      <td>Входные взносы программ</td>
+                      <td>{fmtMoney(computed.totals.programFees, currency)}</td>
+                      <td>{fmtMoney(computed.totals.programFees * segment.investors, currency)}</td>
                     </tr>
                     <tr>
                       <td>Стоимость подписки</td>
