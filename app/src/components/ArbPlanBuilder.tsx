@@ -59,6 +59,10 @@ type PortfolioRow = {
   netAfter: number;
   netPerDayFinal: number;
   netFinal: number;
+  netNoBoost: number;
+  netNoBoostPerDay: number;
+  boosterLift: number;
+  boosterLiftPerDay: number;
 };
 
 type Totals = {
@@ -90,6 +94,21 @@ type ComputedState = {
     };
     compareSubs: ProjectionEntry[];
   };
+  boosterSummary: {
+    liftNet: number;
+    liftPerDay: number;
+    spend: number;
+    roi: number;
+    paybackDays: number | null;
+  };
+};
+
+type PricingControls = {
+  baseCapturePct: number;
+  whaleCapturePct: number;
+  investorBonusPct: number;
+  minPrice: number;
+  maxPrice: number;
 };
 
 type InvestorSegment = {
@@ -184,12 +203,21 @@ function boosterCoverageMultiplier(value: number, coverageFrac: number) {
   return 1 + value * clamp(coverageFrac, 0, 1);
 }
 
+const DEFAULT_PRICING: PricingControls = {
+  baseCapturePct: 65,
+  whaleCapturePct: 45,
+  investorBonusPct: 60,
+  minPrice: 0.5,
+  maxPrice: 1_000_000
+};
+
 function smartPriceBoostersDyn(
   boosterList: Booster[],
   tariffs: Tariff[],
   sub: Subscription,
   userLevel: number,
-  portfolio: PortfolioItem[]
+  portfolio: PortfolioItem[],
+  pricing: PricingControls = DEFAULT_PRICING
 ) {
   const eligibleTs = tariffs.filter(
     (t) => withinLevel(userLevel, t.minLevel) && subMeets(t.reqSub, sub.id)
@@ -199,10 +227,11 @@ function smartPriceBoostersDyn(
   const sortedByMin = [...eligibleTs].sort((a, b) => a.baseMin - b.baseMin);
   const lowT = sortedByMin.slice(0, 3);
 
-  const smallCut = 0.7;
-  const whaleCut = 0.5;
-  const minPrice = 0.5;
-  const maxPrice = 1_000_000;
+  const baseCapture = clamp(pricing.baseCapturePct / 100, 0, 1);
+  const whaleCapture = clamp(pricing.whaleCapturePct / 100, 0, 1);
+  const investorBonus = Math.max(0, pricing.investorBonusPct / 100);
+  const minPrice = Math.max(0, pricing.minPrice);
+  const maxPrice = Math.max(minPrice, pricing.maxPrice);
 
   const portfolioNetGain = (b: Booster) => {
     let sum = 0;
@@ -241,11 +270,17 @@ function smartPriceBoostersDyn(
     const baseNet = baselineNetGain(b);
     const portNet = portfolioNetGain(b);
 
-    const basePrice = Math.max(minPrice, Math.min(maxPrice, baseNet * smallCut));
+    const basePrice = Math.max(minPrice, Math.min(maxPrice, baseNet * baseCapture));
     let dynPrice = basePrice;
     if (portNet > baseNet) {
-      dynPrice = basePrice + whaleCut * (portNet - baseNet);
+      dynPrice = basePrice + whaleCapture * (portNet - baseNet);
     }
+
+    if (portNet > 0 && investorBonus > 0) {
+      const maxByBonus = portNet / (1 + investorBonus);
+      dynPrice = Math.min(dynPrice, maxByBonus);
+    }
+
     dynPrice = Math.max(minPrice, Math.min(maxPrice, dynPrice));
 
     return { ...b, price: parseFloat(dynPrice.toFixed(2)) };
@@ -299,6 +334,11 @@ function computePortfolioState({
       const gross = dailyGross * t.durationDays;
       const fee = feePerDay * t.durationDays;
 
+      const dailyGrossBase = amount * t.dailyRate;
+      const grossBase = dailyGrossBase * t.durationDays;
+      const feeBase = grossBase * feeRate;
+      const netBase = grossBase - feeBase;
+
       return {
         key: item.id,
         t,
@@ -309,7 +349,9 @@ function computePortfolioState({
         dailyGross,
         feePerDay,
         gross,
-        fee
+        fee,
+        netNoBoost: netBase,
+        netNoBoostPerDay: netBase / t.durationDays
       } as Omit<PortfolioRow, 'accAlloc' | 'accPerDay' | 'subAlloc' | 'subPerDay' | 'netPerDayAfter' | 'netAfter' | 'netPerDayFinal' | 'netFinal'> & {
         applicable: Booster[];
       };
@@ -343,6 +385,9 @@ function computePortfolioState({
     const subAlloc = subCost * subShare;
     const subPerDay = subAlloc / r.t.durationDays;
 
+    const boosterLift = netBeforeSub - r.netNoBoost;
+    const boosterLiftPerDay = netPerDayBeforeSub - r.netNoBoostPerDay;
+
     return {
       ...r,
       accAlloc,
@@ -352,7 +397,9 @@ function computePortfolioState({
       netPerDayAfter: netPerDayBeforeSub,
       netAfter: netBeforeSub,
       netPerDayFinal: netPerDayBeforeSub - subPerDay,
-      netFinal: netBeforeSub - subAlloc
+      netFinal: netBeforeSub - subAlloc,
+      boosterLift,
+      boosterLiftPerDay
     };
   });
 
@@ -368,6 +415,11 @@ function computePortfolioState({
   }
 
   const projectRevenue = feeTotal + accCostApplied + subCost;
+
+  const liftNet = rows.reduce((s, r) => s + r.boosterLift, 0);
+  const liftPerDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
+  const roi = accCostApplied > 0 ? liftNet / accCostApplied : 0;
+  const paybackDays = liftPerDay > 0 ? accCostApplied / liftPerDay : null;
 
   const project30 = (subId: string, mode: 'no-reinvest' | 'auto-roll') => {
     const sub = SUBSCRIPTIONS.find((s) => s.id === subId)!;
@@ -436,7 +488,14 @@ function computePortfolioState({
       investorNetPerDay,
       projectRevenue
     },
-    projection30
+    projection30,
+    boosterSummary: {
+      liftNet,
+      liftPerDay,
+      spend: accCostApplied,
+      roi,
+      paybackDays
+    }
   };
 }
 
@@ -500,6 +559,17 @@ function runSelfTests() {
   ];
   const priceBlocked = smartPriceBoostersDyn(blockedBooster, INIT_TARIFFS, elite, 10, bigPort)[0].price;
   console.assert(priceBlocked < pricedBig, 'when big plan is blocked, price should drop');
+
+  const generousBonus = { ...DEFAULT_PRICING, investorBonusPct: 200 };
+  const pricedWithBonus = smartPriceBoostersDyn(
+    testBooster,
+    INIT_TARIFFS,
+    elite,
+    10,
+    bigPort,
+    generousBonus
+  )[0].price;
+  console.assert(pricedWithBonus <= pricedBig, 'higher investor bonus should not raise price');
 }
 
 function uid(prefix: string) {
@@ -514,10 +584,19 @@ export default function ArbPlanBuilder() {
   const [tariffs, setTariffs] = useState<Tariff[]>(INIT_TARIFFS);
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [boostersRaw, setBoostersRaw] = useState<Booster[]>(BASE_BOOSTERS);
+  const [pricingControls, setPricingControls] = useState<PricingControls>(DEFAULT_PRICING);
   const activeSub = SUBSCRIPTIONS.find((s) => s.id === activeSubId) || SUBSCRIPTIONS[0];
   const boosters = useMemo(
-    () => smartPriceBoostersDyn(boostersRaw, tariffs, activeSub, userLevel, portfolio),
-    [boostersRaw, tariffs, activeSub, userLevel, portfolio]
+    () =>
+      smartPriceBoostersDyn(
+        boostersRaw,
+        tariffs,
+        activeSub,
+        userLevel,
+        portfolio,
+        pricingControls
+      ),
+    [boostersRaw, tariffs, activeSub, userLevel, portfolio, pricingControls]
   );
   const [accountBoosters, setAccountBoosters] = useState<string[]>([]);
   const [segments, setSegments] = useState<InvestorSegment[]>(() => [
@@ -632,7 +711,7 @@ export default function ArbPlanBuilder() {
         <div className="flex-between">
           <div>
             <h1 style={{ margin: 0, fontSize: 28 }}>Arb Plan Builder v3.4 — canvas edition</h1>
-            <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>
+            <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>
               ROI-aware booster pricing • whale-aware dynamic markups • simulation lab for investor cohorts
             </p>
           </div>
@@ -658,7 +737,7 @@ export default function ArbPlanBuilder() {
               value={userLevel}
               onChange={(e) => setUserLevel(Number(e.target.value))}
             />
-            <div style={{ fontSize: 13, color: '#bfdbfe' }}>Текущий уровень: Lv {userLevel}</div>
+            <div style={{ fontSize: 13, color: '#2563eb' }}>Текущий уровень: Lv {userLevel}</div>
           </label>
           <label style={{ minWidth: 220 }}>
             <div className="section-subtitle">Подписка</div>
@@ -704,6 +783,14 @@ export default function ArbPlanBuilder() {
             <h2 className="section-title">Редактор бустеров</h2>
             <BoosterEditor boosters={boostersRaw} setBoosters={setBoostersRaw} />
           </div>
+          <div className="card">
+            <h2 className="section-title">Ценообразование бустеров</h2>
+            <p className="section-subtitle">
+              Управляйте долей выгоды, которую забирает проект. Можно ограничить минимальную/максимальную цену и гарантировать
+              инвестору бонус в процентах от стоимости бустера.
+            </p>
+            <PricingEditor pricing={pricingControls} setPricing={setPricingControls} />
+          </div>
         </div>
       )}
 
@@ -725,9 +812,7 @@ export default function ArbPlanBuilder() {
                   key={b.id}
                   className="chip"
                   style={{
-                    background: activeGlobal.has(b.id)
-                      ? 'rgba(59,130,246,0.35)'
-                      : 'rgba(59,130,246,0.18)'
+                    background: activeGlobal.has(b.id) ? '#dbeafe' : '#e2e8f0'
                   }}
                 >
                   <input
@@ -739,7 +824,7 @@ export default function ArbPlanBuilder() {
                   <span className="badge">{b.durationHours}h</span>
                   <span className="badge">{fmtMoney(b.price, currency)}</span>
                   {Array.isArray(b.blockedTariffs) && b.blockedTariffs.length > 0 && (
-                    <span className="badge" style={{ background: 'rgba(248,113,113,0.25)', color: '#fecaca' }}>
+                    <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
                       blocked: {b.blockedTariffs.length}
                     </span>
                   )}
@@ -807,10 +892,34 @@ export default function ArbPlanBuilder() {
                   <span>{fmtMoney(computed.totals.accountCost, currency)}</span>
                 </div>
                 <div className="flex-between">
+                  <span>Лифт от бустеров (после оплаты):</span>
+                  <span>{fmtMoney(computed.boosterSummary.liftNet, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Лифт в день:</span>
+                  <span>{fmtMoney(computed.boosterSummary.liftPerDay, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>ROI бустеров:</span>
+                  <span>
+                    {computed.boosterSummary.spend > 0
+                      ? `${(computed.boosterSummary.roi * 100).toFixed(1)}%`
+                      : '—'}
+                  </span>
+                </div>
+                <div className="flex-between">
+                  <span>Окупаемость бустеров:</span>
+                  <span>
+                    {computed.boosterSummary.paybackDays != null
+                      ? `${computed.boosterSummary.paybackDays.toFixed(1)} дн.`
+                      : '—'}
+                  </span>
+                </div>
+                <div className="flex-between">
                   <span>Подписка (30d):</span>
                   <span>{fmtMoney(computed.totals.subCost, currency)}</span>
                 </div>
-                <div className="flex-between" style={{ marginTop: 8, borderTop: '1px solid rgba(148,163,184,0.2)', paddingTop: 8 }}>
+                <div className="flex-between" style={{ marginTop: 8, borderTop: '1px solid #e2e8f0', paddingTop: 8 }}>
                   <span>Инвестору (после всего):</span>
                   <strong>{fmtMoney(computed.totals.investorNet, currency)}</strong>
                 </div>
@@ -824,7 +933,7 @@ export default function ArbPlanBuilder() {
                 </div>
               </div>
 
-              <div style={{ borderTop: '1px solid rgba(148,163,184,0.2)', paddingTop: 12 }}>
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
                 <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Проекция на 30 дней</h3>
                 <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
                   <div className="flex-between">
@@ -876,7 +985,7 @@ export default function ArbPlanBuilder() {
                 const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
                 const locked = !withinLevel(userLevel, t.minLevel) || !subMeets(t.reqSub, activeSubId);
                 return (
-                  <div key={t.id} className="card" style={{ padding: 16, background: 'rgba(15,23,42,0.75)' }}>
+                  <div key={t.id} className="card" style={{ padding: 16 }}>
                     <div style={{ fontWeight: 600 }}>{t.name}</div>
                     <div className="section-subtitle">
                       {(t.dailyRate * 100).toFixed(2)}%/d • {t.durationDays}d
@@ -885,10 +994,7 @@ export default function ArbPlanBuilder() {
                       <span className="badge">Lv ≥ {t.minLevel}</span>
                       {t.reqSub && <span className="badge">Req: {t.reqSub}</span>}
                       {t.isLimited && (
-                        <span
-                          className="badge"
-                          style={{ background: 'rgba(248,113,113,0.25)', color: '#fecaca' }}
-                        >
+                        <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
                           Слотов: {left}
                         </span>
                       )}
@@ -917,6 +1023,7 @@ export default function ArbPlanBuilder() {
           tariffs={tariffs}
           boosters={boostersRaw}
           currency={currency}
+          pricing={pricingControls}
         />
       )}
 
@@ -955,7 +1062,7 @@ function TariffRow({
   const warnSub = !!t.reqSub && !subMeets(t.reqSub, activeSubId);
 
   return (
-    <div className="card" style={{ background: 'rgba(15,23,42,0.75)' }}>
+    <div className="card">
       <div className="flex-between">
         <div>
           <div style={{ fontWeight: 600 }}>{t.name}</div>
@@ -968,7 +1075,7 @@ function TariffRow({
               {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
             </span>
             {t.isLimited && (
-              <span className="badge" style={{ background: 'rgba(248,113,113,0.25)', color: '#fecaca' }}>
+              <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
                 Лимит {t.capSlots}
               </span>
             )}
@@ -1063,7 +1170,17 @@ function RowPreview({ item, currency, tariffs, boosters, accountBoosters, active
   });
 
   return (
-    <div style={{ background: 'rgba(30,41,59,0.8)', borderRadius: 12, padding: 12, fontSize: 13, display: 'grid', gap: 8 }}>
+    <div
+      style={{
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        borderRadius: 12,
+        padding: 12,
+        fontSize: 13,
+        display: 'grid',
+        gap: 8
+      }}
+    >
       <div>
         <div className="section-subtitle" style={{ marginBottom: 4 }}>
           Эффективная ставка • заметки: {notes.join(' • ')}
@@ -1091,7 +1208,7 @@ function RowPreview({ item, currency, tariffs, boosters, accountBoosters, active
       )}
 
       {warns.length > 0 && (
-        <div style={{ color: '#94a3b8', display: 'grid', gap: 4 }}>
+        <div style={{ color: '#64748b', display: 'grid', gap: 4 }}>
           {warns.map((w) => (
             <div key={w.id}>
               {w.roi < 0 ? (
@@ -1116,6 +1233,77 @@ type TariffEditorProps = {
   tariffs: Tariff[];
   setTariffs: (tariffs: Tariff[]) => void;
 };
+
+type PricingEditorProps = {
+  pricing: PricingControls;
+  setPricing: (pricing: PricingControls) => void;
+};
+
+function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
+  const update = <K extends keyof PricingControls>(field: K, value: PricingControls[K]) => {
+    setPricing({ ...pricing, [field]: value });
+  };
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="grid" style={{ gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <label>
+          <span className="section-subtitle">Доля выгоды с минимальных сумм (проекта)</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={pricing.baseCapturePct}
+            onChange={(e) => update('baseCapturePct', Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span className="section-subtitle">Доля с «китовского» прироста</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={pricing.whaleCapturePct}
+            onChange={(e) => update('whaleCapturePct', Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span className="section-subtitle">Бонус инвестору (ROI от цены, %)</span>
+          <input
+            type="number"
+            min={0}
+            max={500}
+            value={pricing.investorBonusPct}
+            onChange={(e) => update('investorBonusPct', Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span className="section-subtitle">Мин. цена бустера</span>
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            value={pricing.minPrice}
+            onChange={(e) => update('minPrice', Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span className="section-subtitle">Макс. цена бустера</span>
+          <input
+            type="number"
+            min={pricing.minPrice}
+            step={1}
+            value={pricing.maxPrice}
+            onChange={(e) => update('maxPrice', Number(e.target.value))}
+          />
+        </label>
+      </div>
+      <div className="section-subtitle" style={{ color: '#1e293b' }}>
+        При бонусе 100% инвестор получит +100% прибыли к цене бустера (например, купил за $100 → минимум $200 чистой выгоды).
+      </div>
+    </div>
+  );
+}
 
 function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
   const [drafts, setDrafts] = useState<Tariff[]>(tariffs);
@@ -1438,9 +1626,10 @@ type SimulationPanelProps = {
   tariffs: Tariff[];
   boosters: Booster[];
   currency: string;
+  pricing: PricingControls;
 };
 
-function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }: SimulationPanelProps) {
+function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, pricing }: SimulationPanelProps) {
   const addSegment = () => {
     setSegments([
       ...segments,
@@ -1524,7 +1713,14 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
   const segmentSummaries = useMemo(() => {
     return segments.map((segment) => {
       const sub = SUBSCRIPTIONS.find((s) => s.id === segment.subscriptionId) ?? SUBSCRIPTIONS[0];
-      const dynBoosters = smartPriceBoostersDyn(boosters, tariffs, sub, segment.userLevel, segment.portfolio);
+      const dynBoosters = smartPriceBoostersDyn(
+        boosters,
+        tariffs,
+        sub,
+        segment.userLevel,
+        segment.portfolio,
+        pricing
+      );
       const availableBoosters = dynBoosters.filter(
         (b) => withinLevel(segment.userLevel, b.minLevel) && subMeets(b.reqSub, segment.subscriptionId)
       );
@@ -1549,7 +1745,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
         depositPerInvestor
       };
     });
-  }, [segments, tariffs, boosters]);
+  }, [segments, tariffs, boosters, pricing]);
 
   const totals = useMemo(() => {
     let investorsTotal = 0;
@@ -1560,6 +1756,8 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
     let subscriptionRevenueTotal = 0;
     let grossTotal = 0;
     let feeTotal = 0;
+    let boosterLiftTotal = 0;
+    let boosterLiftPerDayTotal = 0;
 
     segmentSummaries.forEach(({ segment, computed, depositPerInvestor }) => {
       investorsTotal += segment.investors;
@@ -1570,6 +1768,8 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
       subscriptionRevenueTotal += computed.totals.subCost * segment.investors;
       grossTotal += computed.totals.grossProfitTotal * segment.investors;
       feeTotal += computed.totals.feeTotal * segment.investors;
+      boosterLiftTotal += computed.boosterSummary.liftNet * segment.investors;
+      boosterLiftPerDayTotal += computed.boosterSummary.liftPerDay * segment.investors;
     });
 
     return {
@@ -1580,9 +1780,16 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
       boosterRevenueTotal,
       subscriptionRevenueTotal,
       grossTotal,
-      feeTotal
+      feeTotal,
+      boosterLiftTotal,
+      boosterLiftPerDayTotal
     };
   }, [segmentSummaries]);
+
+  const boosterRoiTotal = totals.boosterRevenueTotal > 0 ? totals.boosterLiftTotal / totals.boosterRevenueTotal : 0;
+  const boosterPaybackTotal = totals.boosterLiftPerDayTotal > 0
+    ? totals.boosterRevenueTotal / totals.boosterLiftPerDayTotal
+    : null;
 
   return (
     <div className="card" style={{ display: 'grid', gap: 20 }}>
@@ -1623,6 +1830,22 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
           <h4>Выручка от подписок</h4>
           <p>{fmtMoney(totals.subscriptionRevenueTotal, currency)}</p>
         </div>
+        <div className="sim-summary-card">
+          <h4>Лифт от бустеров</h4>
+          <p>{fmtMoney(totals.boosterLiftTotal, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>ROI бустеров</h4>
+          <p>
+            {totals.boosterRevenueTotal > 0
+              ? `${(boosterRoiTotal * 100).toFixed(1)}%`
+              : '—'}
+          </p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Окупаемость бустеров</h4>
+          <p>{boosterPaybackTotal != null ? `${boosterPaybackTotal.toFixed(1)} дн.` : '—'}</p>
+        </div>
       </div>
 
       <div className="grid" style={{ gap: 16 }}>
@@ -1631,7 +1854,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
             (t) => withinLevel(segment.userLevel, t.minLevel) && subMeets(t.reqSub, segment.subscriptionId)
           );
           return (
-            <div key={segment.id} className="card" style={{ display: 'grid', gap: 16, background: 'rgba(17,24,39,0.85)' }}>
+            <div key={segment.id} className="card" style={{ display: 'grid', gap: 16 }}>
               <div className="flex-between">
                 <div style={{ display: 'grid', gap: 6 }}>
                   <input
@@ -1691,7 +1914,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
                     <label
                       key={b.id}
                       className="chip"
-                      style={{ background: chosenBoosterIds.includes(b.id) ? 'rgba(59,130,246,0.35)' : 'rgba(59,130,246,0.18)' }}
+                      style={{ background: chosenBoosterIds.includes(b.id) ? '#dbeafe' : '#e2e8f0' }}
                     >
                       <input
                         type="checkbox"
@@ -1705,7 +1928,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
                 </div>
               </div>
 
-              <div className="card" style={{ background: 'rgba(15,23,42,0.6)', display: 'grid', gap: 12 }}>
+              <div className="card" style={{ background: '#f8fafc', display: 'grid', gap: 12 }}>
                 <div className="flex-between">
                   <h4 style={{ margin: 0 }}>Портфель сегмента</h4>
                   <select onChange={(e) => e.target.value && addTariffToSegment(segment.id, e.target.value)} value="">
@@ -1725,7 +1948,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
                     const t = tariffs.find((x) => x.id === item.tariffId);
                     if (!t) return null;
                     return (
-                      <div key={item.id} className="card" style={{ background: 'rgba(15,23,42,0.8)' }}>
+                      <div key={item.id} className="card">
                         <div className="flex-between">
                           <div>
                             <div style={{ fontWeight: 600 }}>{t.name}</div>
@@ -1781,6 +2004,42 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency }:
                       <td>Стоимость бустеров</td>
                       <td>{fmtMoney(computed.totals.accountCost, currency)}</td>
                       <td>{fmtMoney(computed.totals.accountCost * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Лифт от бустеров</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftNet, currency)}</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftNet * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>Лифт в день</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftPerDay, currency)}</td>
+                      <td>{fmtMoney(computed.boosterSummary.liftPerDay * segment.investors, currency)}</td>
+                    </tr>
+                    <tr>
+                      <td>ROI бустеров</td>
+                      <td>
+                        {computed.boosterSummary.spend > 0
+                          ? `${(computed.boosterSummary.roi * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                      <td>
+                        {computed.boosterSummary.spend > 0
+                          ? `${(computed.boosterSummary.roi * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Окупаемость бустеров</td>
+                      <td>
+                        {computed.boosterSummary.paybackDays != null
+                          ? `${computed.boosterSummary.paybackDays.toFixed(1)} дн.`
+                          : '—'}
+                      </td>
+                      <td>
+                        {computed.boosterSummary.paybackDays != null
+                          ? `${computed.boosterSummary.paybackDays.toFixed(1)} дн.`
+                          : '—'}
+                      </td>
                     </tr>
                     <tr>
                       <td>Стоимость подписки</td>
