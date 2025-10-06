@@ -32,11 +32,14 @@ After the dependencies are installed, start the development server with `npm run
 ## Key capabilities
 
 - Dynamic booster pricing that increases with portfolio exposure and respects blocked tariffs
-- Configurable ROI floor for boosters to guarantee investor bonuses relative to price (editor now saves custom presets)
-- Minimal white dashboard with capital, lift and yield stats surfaced in real time
-- Time-aware booster analytics: lift per active hour, aggregated booster-hours, and payback windows tied to booster duration
+- Configurable ROI floor for boosters to guarantee investor bonuses relative to price (editor now persists custom presets)
+- Minimal white dashboard with capital, lift and yield stats surfaced in real time, including per-day/project revenue splits
+- Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
-- Editors for quickly prototyping new tariffs (with slot limits) and boosters (with block lists)
+- Expanded tariff catalogue with level-gated plans and open-access programmes that can be launched without level requirements
+- Editors for quickly prototyping new tariffs (with slot limits, category/access toggles) and boosters (with block lists)
 - Simulation lab for modeling multiple investor cohorts, aggregating deposits, payouts and project revenue streams
+- MMM-style survival model that charts how long reserves last without new deposits, complete with reserve vs. time visualisation
+- Local persistence of tariff/booster catalogs and pricing controls via `localStorage`
 
 Self-tests covering ROI maths and pricing safeguards execute automatically on load (see `runSelfTests` inside `ArbPlanBuilder.tsx`).

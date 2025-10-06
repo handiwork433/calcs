@@ -8,6 +8,9 @@ type Subscription = {
   minLevel: number;
 };
 
+type TariffCategory = 'plan' | 'program';
+type TariffAccess = 'level' | 'open';
+
 type Tariff = {
   id: string;
   name: string;
@@ -19,6 +22,8 @@ type Tariff = {
   reqSub: string | null;
   isLimited: boolean;
   capSlots: number | null;
+  category: TariffCategory;
+  access: TariffAccess;
 };
 
 type Booster = {
@@ -63,6 +68,7 @@ type PortfolioRow = {
   netNoBoostPerDay: number;
   boosterLift: number;
   boosterLiftPerDay: number;
+  boosterDetails: Record<string, { netGain: number; priceShare: number; paybackHours: number | null; coverage: number }>;
 };
 
 type Totals = {
@@ -76,6 +82,12 @@ type Totals = {
   baselineNet: number;
   baselineNetPerDay: number;
   capital: number;
+  investorNetBeforeSub: number;
+  investorNetPerDayBeforeSub: number;
+  feePerDayTotal: number;
+  accountCostPerDay: number;
+  subCostPerDay: number;
+  projectRevenuePerDay: number;
 };
 
 type ProjectionEntry = {
@@ -153,28 +165,34 @@ const SUBSCRIPTIONS: Subscription[] = [
 ];
 
 const INIT_TARIFFS: Tariff[] = [
-  { id: 't_start', name: 'Start Day', durationDays: 1, dailyRate: 0.003, minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_weekly_a', name: 'Weekly A', durationDays: 7, dailyRate: 0.004, minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_weekly_b', name: 'Weekly B', durationDays: 7, dailyRate: 0.005, minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_flex14', name: 'Flex 14', durationDays: 14, dailyRate: 0.006, minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_month_std', name: 'Month Std', durationDays: 30, dailyRate: 0.0065, minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_month_plus', name: 'Month Plus', durationDays: 30, dailyRate: 0.0075, minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null },
-  { id: 't_quarter', name: 'Quarter 90', durationDays: 90, dailyRate: 0.008, minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null },
-  { id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, dailyRate: 0.0065, minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 100 },
-  { id: 't_express3', name: 'Express 3d', durationDays: 3, dailyRate: 0.007, minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200 },
-  { id: 't_mm30', name: 'Market Making 30', durationDays: 30, dailyRate: 0.009, minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 50 },
-  { id: 't_global60', name: 'Global 60', durationDays: 60, dailyRate: 0.0095, minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 40 },
-  { id: 't_prime45', name: 'Prime 45', durationDays: 45, dailyRate: 0.01, minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 30 },
-  { id: 't_flash7', name: 'Flash Seven', durationDays: 7, dailyRate: 0.011, minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 70 },
-  { id: 't_dual21', name: 'Dual 21', durationDays: 21, dailyRate: 0.0072, minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null },
-  { id: 't_swing28', name: 'Swing 28', durationDays: 28, dailyRate: 0.0083, minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_spot18', name: 'Spot 18', durationDays: 18, dailyRate: 0.0078, minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null },
-  { id: 't_meta60', name: 'Meta 60', durationDays: 60, dailyRate: 0.0105, minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 25 },
-  { id: 't_spread10', name: 'Spread 10', durationDays: 10, dailyRate: 0.0068, minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 120 },
-  { id: 't_quant90', name: 'Quant 90', durationDays: 90, dailyRate: 0.0098, minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 35 },
-  { id: 't_event5', name: 'Event 5', durationDays: 5, dailyRate: 0.012, minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20 },
-  { id: 't_ai45', name: 'AI 45', durationDays: 45, dailyRate: 0.0112, minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 40 },
-  { id: 't_yield75', name: 'Yield 75', durationDays: 75, dailyRate: 0.0089, minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null }
+  { id: 't_start', name: 'Start Day', durationDays: 1, dailyRate: 0.003, minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_weekly_a', name: 'Weekly A', durationDays: 7, dailyRate: 0.004, minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_weekly_b', name: 'Weekly B', durationDays: 7, dailyRate: 0.005, minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_flex14', name: 'Flex 14', durationDays: 14, dailyRate: 0.006, minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_month_std', name: 'Month Std', durationDays: 30, dailyRate: 0.0065, minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_month_plus', name: 'Month Plus', durationDays: 30, dailyRate: 0.0075, minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_quarter', name: 'Quarter 90', durationDays: 90, dailyRate: 0.008, minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, dailyRate: 0.0065, minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 100, category: 'plan', access: 'level' },
+  { id: 't_express3', name: 'Express 3d', durationDays: 3, dailyRate: 0.007, minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200, category: 'plan', access: 'level' },
+  { id: 't_mm30', name: 'Market Making 30', durationDays: 30, dailyRate: 0.009, minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 50, category: 'plan', access: 'level' },
+  { id: 't_global60', name: 'Global 60', durationDays: 60, dailyRate: 0.0095, minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 40, category: 'plan', access: 'level' },
+  { id: 't_prime45', name: 'Prime 45', durationDays: 45, dailyRate: 0.01, minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 30, category: 'plan', access: 'level' },
+  { id: 't_flash7', name: 'Flash Seven', durationDays: 7, dailyRate: 0.011, minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 70, category: 'plan', access: 'level' },
+  { id: 't_dual21', name: 'Dual 21', durationDays: 21, dailyRate: 0.0072, minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_swing28', name: 'Swing 28', durationDays: 28, dailyRate: 0.0083, minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_spot18', name: 'Spot 18', durationDays: 18, dailyRate: 0.0078, minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 't_meta60', name: 'Meta 60', durationDays: 60, dailyRate: 0.0105, minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 25, category: 'plan', access: 'level' },
+  { id: 't_spread10', name: 'Spread 10', durationDays: 10, dailyRate: 0.0068, minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 120, category: 'plan', access: 'level' },
+  { id: 't_quant90', name: 'Quant 90', durationDays: 90, dailyRate: 0.0098, minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 35, category: 'plan', access: 'level' },
+  { id: 't_event5', name: 'Event 5', durationDays: 5, dailyRate: 0.012, minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20, category: 'plan', access: 'level' },
+  { id: 't_ai45', name: 'AI 45', durationDays: 45, dailyRate: 0.0112, minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 40, category: 'plan', access: 'level' },
+  { id: 't_yield75', name: 'Yield 75', durationDays: 75, dailyRate: 0.0089, minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null, category: 'plan', access: 'level' },
+  { id: 'p_combo30', name: 'Combo 30', durationDays: 30, dailyRate: 0.0068, minLevel: 1, baseMin: 150, baseMax: 3200, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open' },
+  { id: 'p_scalp7', name: 'Scalp 7', durationDays: 7, dailyRate: 0.0092, minLevel: 1, baseMin: 120, baseMax: 2500, reqSub: null, isLimited: true, capSlots: 60, category: 'program', access: 'open' },
+  { id: 'p_loyal30', name: 'Loyalty 30', durationDays: 30, dailyRate: 0.007, minLevel: 1, baseMin: 200, baseMax: 5000, reqSub: 'bronze', isLimited: false, capSlots: null, category: 'program', access: 'open' },
+  { id: 'p_airdrop14', name: 'Airdrop 14', durationDays: 14, dailyRate: 0.0115, minLevel: 1, baseMin: 250, baseMax: 4200, reqSub: null, isLimited: true, capSlots: 100, category: 'program', access: 'open' },
+  { id: 'p_escalate21', name: 'Escalate 21', durationDays: 21, dailyRate: 0.0085, minLevel: 1, baseMin: 300, baseMax: 6500, reqSub: 'silver', isLimited: false, capSlots: null, category: 'program', access: 'open' },
+  { id: 'p_wave60', name: 'Wave 60', durationDays: 60, dailyRate: 0.0093, minLevel: 1, baseMin: 500, baseMax: 15000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'program', access: 'open' }
 ];
 
 const BASE_BOOSTERS: Booster[] = [
@@ -205,6 +223,25 @@ function fmtMoney(n: number, currency = 'USD') {
 
 function withinLevel(userLevel: number, minLevel: number) {
   return userLevel >= minLevel;
+}
+
+function tariffAccessible(tariff: Tariff, userLevel: number, activeSubId: string) {
+  const levelOk = tariff.access === 'open' || withinLevel(userLevel, tariff.minLevel);
+  const subOk = subMeets(tariff.reqSub, activeSubId);
+  return levelOk && subOk;
+}
+
+function sortTariffs(a: Tariff, b: Tariff) {
+  if (a.category !== b.category) {
+    return a.category === 'plan' ? -1 : 1;
+  }
+  if (a.access !== b.access) {
+    return a.access === 'open' ? 1 : -1;
+  }
+  if (a.minLevel !== b.minLevel) {
+    return a.minLevel - b.minLevel;
+  }
+  return a.dailyRate - b.dailyRate;
 }
 
 function subMeets(requiredSubId: string | null, activeSubId: string) {
@@ -247,6 +284,46 @@ const DEFAULT_PRICING: PricingControls = {
   maxPrice: 1_000_000
 };
 
+const STORAGE_KEY = 'arb-plan-builder-v4';
+
+type PersistedState = {
+  tariffs?: Tariff[];
+  boosters?: Booster[];
+  pricing?: PricingControls;
+};
+
+function normalizeTariff(t: any): Tariff {
+  return {
+    id: String(t?.id ?? uid('t')),
+    name: String(t?.name ?? 'Tariff'),
+    durationDays: Number(t?.durationDays ?? 7),
+    dailyRate: Number(t?.dailyRate ?? 0.005),
+    minLevel: Number(t?.minLevel ?? 1),
+    baseMin: Number(t?.baseMin ?? 50),
+    baseMax: Number(t?.baseMax ?? 3000),
+    reqSub: t?.reqSub ? String(t.reqSub) : null,
+    isLimited: Boolean(t?.isLimited ?? false),
+    capSlots:
+      t?.capSlots === null || t?.capSlots === undefined || t?.capSlots === ''
+        ? null
+        : Number(t.capSlots),
+    category: t?.category === 'program' ? 'program' : 'plan',
+    access: t?.access === 'open' ? 'open' : 'level'
+  };
+}
+
+function readPersistedState(): PersistedState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function smartPriceBoostersDyn(
   boosterList: Booster[],
   tariffs: Tariff[],
@@ -255,9 +332,7 @@ function smartPriceBoostersDyn(
   portfolio: PortfolioItem[],
   pricing: PricingControls = DEFAULT_PRICING
 ) {
-  const eligibleTs = tariffs.filter(
-    (t) => withinLevel(userLevel, t.minLevel) && subMeets(t.reqSub, sub.id)
-  );
+  const eligibleTs = tariffs.filter((t) => tariffAccessible(t, userLevel, sub.id));
   if (eligibleTs.length === 0) return boosterList;
 
   const sortedByMin = [...eligibleTs].sort((a, b) => a.baseMin - b.baseMin);
@@ -359,6 +434,7 @@ function computePortfolioState({
 
       let multiplier = 1;
       const notes: string[] = [];
+      const boosterNetById: Record<string, number> = {};
       for (const b of applicable) {
         const cov = Math.min(b.durationHours, hours) / hours;
         const mul = boosterCoverageMultiplier(b.effect.value, cov);
@@ -368,6 +444,7 @@ function computePortfolioState({
         const gainGross = amount * t.dailyRate * t.durationDays * (b.effect.value * cov);
         const gainNet = gainGross * (1 - feeRate);
         boosterNetGain.set(b.id, (boosterNetGain.get(b.id) || 0) + gainNet);
+        boosterNetById[b.id] = (boosterNetById[b.id] || 0) + gainNet;
       }
 
       const dailyGross = amount * t.dailyRate * multiplier;
@@ -392,7 +469,8 @@ function computePortfolioState({
         gross,
         fee,
         netNoBoost: netBase,
-        netNoBoostPerDay: netBase / t.durationDays
+        netNoBoostPerDay: netBase / t.durationDays,
+        boosterNetById
       } as Omit<PortfolioRow, 'accAlloc' | 'accPerDay' | 'subAlloc' | 'subPerDay' | 'netPerDayAfter' | 'netAfter' | 'netPerDayFinal' | 'netFinal'> & {
         applicable: Booster[];
       };
@@ -411,11 +489,26 @@ function computePortfolioState({
   const capDaysAll = rowsBase.reduce((s: number, r: any) => s + r.amount * r.t.durationDays, 0);
 
   const rows: PortfolioRow[] = rowsBase.map((r: any) => {
+    const boosterNetById: Record<string, number> = r.boosterNetById || {};
     let accAlloc = 0;
+    const boosterDetails: PortfolioRow['boosterDetails'] = {};
     for (const b of r.applicable) {
       const denom = denomByBooster.get(b.id) || 0;
       const share = denom ? (r.amount * r.t.durationDays) / denom : 0;
-      accAlloc += b.price * share;
+      const priceShare = (b.price || 0) * share;
+      accAlloc += priceShare;
+
+      const activeHours = Math.min(b.durationHours, r.t.durationDays * 24);
+      const netGain = boosterNetById[b.id] ?? 0;
+      const netPerHour = activeHours > 0 ? netGain / activeHours : 0;
+      const paybackHours = netPerHour > 0 && priceShare > 0 ? priceShare / netPerHour : null;
+      const coverage = r.t.durationDays > 0 ? Math.min(b.durationHours, r.t.durationDays * 24) / (r.t.durationDays * 24) : 0;
+      boosterDetails[b.id] = {
+        netGain,
+        priceShare,
+        paybackHours,
+        coverage
+      };
     }
     const accPerDay = accAlloc / r.t.durationDays;
 
@@ -429,8 +522,10 @@ function computePortfolioState({
     const boosterLift = netBeforeSub - r.netNoBoost;
     const boosterLiftPerDay = netPerDayBeforeSub - r.netNoBoostPerDay;
 
+    const { boosterNetById: _ignored, ...rest } = r;
+
     return {
-      ...r,
+      ...rest,
       accAlloc,
       accPerDay,
       subAlloc,
@@ -440,22 +535,29 @@ function computePortfolioState({
       netPerDayFinal: netPerDayBeforeSub - subPerDay,
       netFinal: netBeforeSub - subAlloc,
       boosterLift,
-      boosterLiftPerDay
+      boosterLiftPerDay,
+      boosterDetails
     };
   });
 
   const investorNet = rows.reduce((s, r) => s + r.netFinal, 0);
   const investorNetPerDay = rows.reduce((s, r) => s + r.netPerDayFinal, 0);
+  const investorNetBeforeSub = rows.reduce((s, r) => s + r.netAfter, 0);
+  const investorNetPerDayBeforeSub = rows.reduce((s, r) => s + r.netPerDayAfter, 0);
   const feeTotal = rows.reduce((s, r) => s + r.fee, 0);
   const grossProfitTotal = rows.reduce((s, r) => s + r.gross, 0);
   const baselineNet = rows.reduce((s, r) => s + r.netNoBoost, 0);
   const baselineNetPerDay = rows.reduce((s, r) => s + r.netNoBoostPerDay, 0);
   const capital = rows.reduce((s, r) => s + r.amount, 0);
+  const feePerDayTotal = rows.reduce((s, r) => s + r.feePerDay, 0);
+  const accountCostPerDay = rows.reduce((s, r) => s + r.accPerDay, 0);
+  const subCostPerDay = rows.reduce((s, r) => s + r.subPerDay, 0);
 
   const appliedBoosters = chosenAcc.filter((b) => (denomByBooster.get(b.id) || 0) > 0);
   const accCostApplied = appliedBoosters.reduce((sum, b) => sum + (b.price || 0), 0);
 
   const projectRevenue = feeTotal + accCostApplied + subCost;
+  const projectRevenuePerDay = feePerDayTotal + accountCostPerDay + subCostPerDay;
 
   const liftNet = rows.reduce((s, r) => s + r.boosterLift, 0);
   const liftPerPlanDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
@@ -540,7 +642,13 @@ function computePortfolioState({
       projectRevenue,
       baselineNet,
       baselineNetPerDay,
-      capital
+      capital,
+      investorNetBeforeSub,
+      investorNetPerDayBeforeSub,
+      feePerDayTotal,
+      accountCostPerDay,
+      subCostPerDay,
+      projectRevenuePerDay
     },
     projection30,
     boosterSummary: {
@@ -632,6 +740,22 @@ function runSelfTests() {
   console.assert(paybackShort.includes('12') || paybackShort.includes('дн'), 'payback should render horizon');
   const paybackLong = describePayback(48, 24);
   console.assert(paybackLong.includes('дольше срока'), 'payback should note when horizon exceeds duration');
+  const openNormalized = normalizeTariff({
+    id: 'open',
+    name: 'Open',
+    durationDays: 5,
+    dailyRate: 0.01,
+    minLevel: 10,
+    baseMin: 100,
+    baseMax: 500,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'program',
+    access: 'open'
+  });
+  console.assert(openNormalized.access === 'open' && openNormalized.category === 'program', 'normalizeTariff keeps flags');
+  console.assert(tariffAccessible(openNormalized, 1, 'free'), 'open tariff ignores level');
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -702,10 +826,21 @@ export default function ArbPlanBuilder() {
   const [userLevel, setUserLevel] = useState(8);
   const [currency, setCurrency] = useState('USD');
   const [activeSubId, setActiveSubId] = useState('free');
-  const [tariffs, setTariffs] = useState<Tariff[]>(INIT_TARIFFS);
+  const persisted = readPersistedState();
+  const [tariffs, setTariffs] = useState<Tariff[]>(() =>
+    persisted?.tariffs && Array.isArray(persisted.tariffs)
+      ? persisted.tariffs.map(normalizeTariff)
+      : INIT_TARIFFS
+  );
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
-  const [boostersRaw, setBoostersRaw] = useState<Booster[]>(BASE_BOOSTERS);
-  const [pricingControls, setPricingControls] = useState<PricingControls>(DEFAULT_PRICING);
+  const [boostersRaw, setBoostersRaw] = useState<Booster[]>(() =>
+    (persisted?.boosters && Array.isArray(persisted.boosters) && persisted.boosters.length > 0
+      ? persisted.boosters
+      : BASE_BOOSTERS) as Booster[]
+  );
+  const [pricingControls, setPricingControls] = useState<PricingControls>(() =>
+    persisted?.pricing ? { ...DEFAULT_PRICING, ...persisted.pricing } : DEFAULT_PRICING
+  );
   const activeSub = SUBSCRIPTIONS.find((s) => s.id === activeSubId) || SUBSCRIPTIONS[0];
   const boosters = useMemo(
     () =>
@@ -748,9 +883,8 @@ export default function ArbPlanBuilder() {
   ]);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const eligibleTariffs = tariffs.filter(
-    (t) => withinLevel(userLevel, t.minLevel) && subMeets(t.reqSub, activeSubId)
-  );
+  const sortedTariffs = useMemo(() => [...tariffs].sort(sortTariffs), [tariffs]);
+  const eligibleTariffs = sortedTariffs.filter((t) => tariffAccessible(t, userLevel, activeSubId));
   const availableAccountBoosters = boosters.filter(
     (b) =>
       b.scope === 'account' &&
@@ -814,6 +948,10 @@ export default function ArbPlanBuilder() {
   const addTariff = (tariffId: string) => {
     const t = tariffs.find((x) => x.id === tariffId);
     if (!t) return;
+    if (!tariffAccessible(t, userLevel, activeSubId)) {
+      alert('Тариф недоступен при текущем уровне или подписке');
+      return;
+    }
     const used = tariffSlotsUsed.get(tariffId) || 0;
     if (t.isLimited && t.capSlots != null && used >= t.capSlots) {
       alert('Лимит слотов тарифа исчерпан');
@@ -840,6 +978,16 @@ export default function ArbPlanBuilder() {
   };
 
   const updateSegments = (next: InvestorSegment[]) => setSegments(next);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const payload: PersistedState = {
+      tariffs,
+      boosters: boostersRaw,
+      pricing: pricingControls
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }, [tariffs, boostersRaw, pricingControls]);
 
   return (
     <div className="grid" style={{ gap: 24 }}>
@@ -1045,6 +1193,7 @@ export default function ArbPlanBuilder() {
                     const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
                     return (
                       <option key={t.id} value={t.id} disabled={left !== null && left === 0}>
+                        {t.category === 'program' ? '[Программа] ' : ''}
                         {t.name} — {(t.dailyRate * 100).toFixed(2)}%/d × {t.durationDays}d{' '}
                         {left !== null ? `• слотов: ${left}` : ''}
                       </option>
@@ -1070,6 +1219,7 @@ export default function ArbPlanBuilder() {
                     tariffs={tariffs}
                     boosters={boosters}
                     accountBoosters={accountBoosters}
+                    rowData={computed.rows.find((r) => r.key === item.id)}
                   />
                 ))}
               </div>
@@ -1093,6 +1243,10 @@ export default function ArbPlanBuilder() {
                 <div className="flex-between">
                   <span>Инвестору без бустеров:</span>
                   <span>{fmtMoney(computed.totals.baselineNet, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Инвестору с бустерами (до подписки):</span>
+                  <span>{fmtMoney(computed.totals.investorNetBeforeSub, currency)}</span>
                 </div>
                 <div className="flex-between">
                   <span>Лифт от бустеров (после оплаты):</span>
@@ -1150,8 +1304,16 @@ export default function ArbPlanBuilder() {
                   <strong>{fmtMoney(computed.totals.investorNetPerDay, currency)}</strong>
                 </div>
                 <div className="flex-between">
+                  <span>Начисление в день (до подписки):</span>
+                  <span>{fmtMoney(computed.totals.investorNetPerDayBeforeSub, currency)}</span>
+                </div>
+                <div className="flex-between">
                   <span>Доход проекта:</span>
                   <strong>{fmtMoney(computed.totals.projectRevenue, currency)}</strong>
+                </div>
+                <div className="flex-between">
+                  <span>Доход проекта в день:</span>
+                  <span>{fmtMoney(computed.totals.projectRevenuePerDay, currency)}</span>
                 </div>
               </div>
 
@@ -1202,37 +1364,60 @@ export default function ArbPlanBuilder() {
           <div className="card" style={{ display: 'grid', gap: 16 }}>
             <h2 className="section-title">Доступные тарифы</h2>
             <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-              {tariffs.map((t) => {
+              {sortedTariffs.map((t, idx, arr) => {
                 const used = tariffSlotsUsed.get(t.id) || 0;
                 const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
-                const locked = !withinLevel(userLevel, t.minLevel) || !subMeets(t.reqSub, activeSubId);
+                const locked = !tariffAccessible(t, userLevel, activeSubId);
+                const categoryChanged = idx === 0 || arr[idx - 1].category !== t.category;
                 return (
-                  <div key={t.id} className="card" style={{ padding: 16 }}>
-                    <div style={{ fontWeight: 600 }}>{t.name}</div>
-                    <div className="section-subtitle">
-                      {(t.dailyRate * 100).toFixed(2)}%/d • {t.durationDays}d
+                  <React.Fragment key={t.id}>
+                    {categoryChanged && (
+                      <div
+                        style={{
+                          gridColumn: '1 / -1',
+                          fontWeight: 600,
+                          color: '#475569'
+                        }}
+                      >
+                        {t.category === 'program'
+                          ? 'Программы (без ограничения уровня)'
+                          : 'Тарифы с требованиями'}
+                      </div>
+                    )}
+                    <div className="card" style={{ padding: 16 }}>
+                      <div style={{ fontWeight: 600 }}>{t.name}</div>
+                      <div className="section-subtitle">
+                        {(t.dailyRate * 100).toFixed(2)}%/d • {t.durationDays}d
+                      </div>
+                      <div className="flex">
+                        <span className="badge">{t.category === 'program' ? 'Программа' : 'Тариф'}</span>
+                        {t.access === 'open' ? (
+                          <span className="badge" style={{ background: '#dcfce7', color: '#166534' }}>
+                            Без уровня
+                          </span>
+                        ) : (
+                          <span className="badge">Lv ≥ {t.minLevel}</span>
+                        )}
+                        {t.reqSub && <span className="badge">Req: {t.reqSub}</span>}
+                        {t.isLimited && (
+                          <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
+                            Слотов: {left}
+                          </span>
+                        )}
+                      </div>
+                      <div className="section-subtitle">
+                        Депозит: {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
+                      </div>
+                      <button
+                        className="primary"
+                        style={{ width: '100%' }}
+                        onClick={() => addTariff(t.id)}
+                        disabled={(left !== null && left === 0) || locked}
+                      >
+                        Добавить в портфель
+                      </button>
                     </div>
-                    <div className="flex">
-                      <span className="badge">Lv ≥ {t.minLevel}</span>
-                      {t.reqSub && <span className="badge">Req: {t.reqSub}</span>}
-                      {t.isLimited && (
-                        <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
-                          Слотов: {left}
-                        </span>
-                      )}
-                    </div>
-                    <div className="section-subtitle">
-                      Депозит: {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
-                    </div>
-                    <button
-                      className="primary"
-                      style={{ width: '100%' }}
-                      onClick={() => addTariff(t.id)}
-                      disabled={(left !== null && left === 0) || locked}
-                    >
-                      Добавить в портфель
-                    </button>
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -1278,6 +1463,11 @@ function PlannerStats({ computed, currency }: PlannerStatsProps) {
       hint: `${fmtMoney(totals.baselineNetPerDay, currency)} в день`
     },
     {
+      label: 'Чистая прибыль с бустерами (до подписки)',
+      value: fmtMoney(totals.investorNetBeforeSub, currency),
+      hint: `${fmtMoney(totals.investorNetPerDayBeforeSub, currency)} в день`
+    },
+    {
       label: 'Чистая прибыль с бустерами',
       value: fmtMoney(totals.investorNet, currency),
       hint: `${fmtMoney(totals.investorNetPerDay, currency)} в день`
@@ -1295,7 +1485,7 @@ function PlannerStats({ computed, currency }: PlannerStatsProps) {
     {
       label: 'Доход проекта',
       value: fmtMoney(totals.projectRevenue, currency),
-      hint: 'Комиссии + бустеры + подписка'
+      hint: `${fmtMoney(totals.projectRevenuePerDay, currency)} в день`
     }
   ];
 
@@ -1334,6 +1524,7 @@ type TariffRowProps = {
   tariffs: Tariff[];
   boosters: Booster[];
   accountBoosters: string[];
+  rowData?: PortfolioRow;
 };
 
 function TariffRow({
@@ -1345,11 +1536,14 @@ function TariffRow({
   activeSubId,
   tariffs,
   boosters,
-  accountBoosters
+  accountBoosters,
+  rowData
 }: TariffRowProps) {
   const t = tariffs.find((x) => x.id === item.tariffId)!;
-  const warnLevel = userLevel < t.minLevel;
-  const warnSub = !!t.reqSub && !subMeets(t.reqSub, activeSubId);
+  const levelOk = t.access === 'open' || withinLevel(userLevel, t.minLevel);
+  const subOk = !t.reqSub || subMeets(t.reqSub, activeSubId);
+  const warnLevel = !levelOk;
+  const warnSub = !subOk;
 
   return (
     <div className="card">
@@ -1357,7 +1551,14 @@ function TariffRow({
         <div>
           <div style={{ fontWeight: 600 }}>{t.name}</div>
           <div className="flex">
-            <span className="badge">Lv ≥ {t.minLevel}</span>
+            <span className="badge">{t.category === 'program' ? 'Программа' : 'Тариф'}</span>
+            {t.access === 'open' ? (
+              <span className="badge" style={{ background: '#dcfce7', color: '#166534' }}>
+                Без ограничения уровня
+              </span>
+            ) : (
+              <span className="badge">Lv ≥ {t.minLevel}</span>
+            )}
             {t.reqSub && <span className="badge">Req: {t.reqSub}</span>}
             <span className="badge">{t.durationDays}d</span>
             <span className="badge">{(t.dailyRate * 100).toFixed(2)}%/d</span>
@@ -1394,72 +1595,70 @@ function TariffRow({
       </label>
 
       <RowPreview
-        item={item}
         currency={currency}
-        tariffs={tariffs}
+        rowData={rowData}
         boosters={boosters}
         accountBoosters={accountBoosters}
-        activeSubId={activeSubId}
       />
     </div>
   );
 }
 
 type RowPreviewProps = {
-  item: PortfolioItem;
   currency: string;
-  tariffs: Tariff[];
+  rowData?: PortfolioRow;
   boosters: Booster[];
   accountBoosters: string[];
-  activeSubId: string;
 };
 
-function RowPreview({ item, currency, tariffs, boosters, accountBoosters, activeSubId }: RowPreviewProps) {
-  const t = tariffs.find((x) => x.id === item.tariffId)!;
-  const sub = SUBSCRIPTIONS.find((s) => s.id === activeSubId)!;
-  const feeRate = sub.fee;
-
-  const amount = Math.max(0, Number(item.amount) || 0);
-  const totalHours = t.durationDays * 24;
-
+function RowPreview({ currency, rowData, boosters, accountBoosters }: RowPreviewProps) {
   const chosenAcc = accountBoosters
     .map((id) => boosters.find((b) => b.id === id))
     .filter(Boolean) as Booster[];
-  const applicable = chosenAcc.filter(
-    (b) => !Array.isArray(b.blockedTariffs) || !b.blockedTariffs.includes(t.id)
-  );
-  const blocked = chosenAcc.filter(
-    (b) => Array.isArray(b.blockedTariffs) && b.blockedTariffs.includes(t.id)
-  );
+  const applicableIds = new Set((rowData?.applicable ?? []).map((b) => b.id));
+  const blocked = chosenAcc.filter((b) => !applicableIds.has(b.id));
 
-  let multiplier = 1;
-  const notes: string[] = [];
-  for (const b of applicable) {
-    const cov = Math.min(b.durationHours, totalHours) / totalHours;
-    const mul = boosterCoverageMultiplier(b.effect.value, cov);
-    multiplier *= mul;
-    notes.push(`${b.name}: ×${mul.toFixed(3)} (cov ${(cov * 100).toFixed(0)}%)`);
+  if (!rowData) {
+    return (
+      <div
+        style={{
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: 12,
+          padding: 12,
+          fontSize: 13
+        }}
+      >
+        <span className="section-subtitle">Расчёт обновляется…</span>
+      </div>
+    );
   }
 
-  const dailyGross = amount * t.dailyRate * multiplier;
-  const feePerDay = dailyGross * feeRate;
-  const gross = dailyGross * t.durationDays;
-  const fee = feePerDay * t.durationDays;
+  const netBeforeBoosters = rowData?.netNoBoost ?? 0;
+  const netWithBoosters = rowData?.netAfter ?? netBeforeBoosters;
+  const netFinal = rowData?.netFinal ?? netWithBoosters;
+  const netPerDay = rowData?.netPerDayAfter ?? (rowData?.netNoBoostPerDay ?? 0);
+  const netPerDayFinal = rowData?.netPerDayFinal ?? netPerDay;
+  const boosterLift = rowData?.boosterLift ?? 0;
+  const boosterLiftPerDay = rowData?.boosterLiftPerDay ?? 0;
 
-  const netBefore = gross - fee;
-  const netPerDayBefore = dailyGross - feePerDay;
+  const boosterNotes = rowData?.notes?.length ? rowData.notes.join(' • ') : '—';
+  const details = rowData?.boosterDetails ?? {};
 
-  const warns = applicable.map((b) => {
-    const cov = Math.min(b.durationHours, totalHours) / totalHours;
-    const gainGross = amount * t.dailyRate * t.durationDays * (b.effect.value * cov);
-    const gainNet = gainGross * (1 - feeRate);
-    const denom = t.dailyRate * t.durationDays * (b.effect.value * cov) * (1 - feeRate);
-    const beAmount = denom > 0 ? b.price / denom : Infinity;
-    const roi = gainNet - b.price;
-    const activeHours = Math.min(b.durationHours, totalHours);
-    const netPerActiveHour = activeHours > 0 ? gainNet / activeHours : 0;
-    const paybackHours = netPerActiveHour > 0 ? b.price / netPerActiveHour : null;
-    return { id: b.id, name: b.name, roi, beAmount, paybackHours, durationHours: b.durationHours };
+  const warns = rowData?.applicable?.map((b) => {
+    const detail = details[b.id];
+    const priceShare = detail?.priceShare ?? b.price;
+    const netGain = detail?.netGain ?? 0;
+    const roi = priceShare > 0 ? netGain - priceShare : netGain;
+    return {
+      id: b.id,
+      name: b.name,
+      roi,
+      priceShare,
+      paybackHours: detail?.paybackHours ?? null,
+      coverage: detail?.coverage ?? 0,
+      durationHours: b.durationHours
+    };
   });
 
   return (
@@ -1476,20 +1675,26 @@ function RowPreview({ item, currency, tariffs, boosters, accountBoosters, active
     >
       <div>
         <div className="section-subtitle" style={{ marginBottom: 4 }}>
-          Эффективная ставка • заметки: {notes.join(' • ')}
+          Эффективная ставка • заметки: {boosterNotes}
         </div>
         <div className="flex" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <span>
-            Валовая прибыль: <strong>{fmtMoney(gross, currency)}</strong>
+            Инвестору без бустеров: <strong>{fmtMoney(netBeforeBoosters, currency)}</strong>
           </span>
           <span>
-            Комиссия: <strong>{fmtMoney(fee, currency)}</strong>
+            Прирост от бустеров: <strong>{fmtMoney(boosterLift, currency)}</strong>
           </span>
           <span>
-            Инвестору (до подписки): <strong>{fmtMoney(netBefore, currency)}</strong>
+            Инвестору (после бустеров): <strong>{fmtMoney(netWithBoosters, currency)}</strong>
           </span>
           <span>
-            Начисление в день: <strong>{fmtMoney(netPerDayBefore, currency)}</strong>
+            Начисление в день (после всех вычетов): <strong>{fmtMoney(netPerDayFinal, currency)}</strong>
+          </span>
+          <span>
+            Финал с подпиской: <strong>{fmtMoney(netFinal, currency)}</strong>
+          </span>
+          <span>
+            Прирост/день: <strong>{fmtMoney(boosterLiftPerDay, currency)}</strong>
           </span>
         </div>
       </div>
@@ -1500,19 +1705,20 @@ function RowPreview({ item, currency, tariffs, boosters, accountBoosters, active
         </div>
       )}
 
-      {warns.length > 0 && (
+      {warns && warns.length > 0 && (
         <div style={{ color: '#64748b', display: 'grid', gap: 4 }}>
           {warns.map((w) => (
             <div key={w.id}>
               {w.roi < 0 ? (
                 <span style={{ color: '#fbbf24' }}>
-                  ⚠️ {w.name}: −ROI при {fmtMoney(amount, currency)}. Брэйк-ивен ≈{' '}
-                  {Number.isFinite(w.beAmount) ? fmtMoney(w.beAmount, currency) : '—'}.
+                  ⚠️ {w.name}: −ROI на долю {fmtMoney(w.priceShare, currency)}. Окупаемость ≈{' '}
+                  {describePayback(w.paybackHours, w.durationHours)}.
                 </span>
               ) : (
                 <span>
-                  ✅ {w.name}: ROI+ ≈ {fmtMoney(w.roi, currency)} при {fmtMoney(amount, currency)} •
-                  окупаемость ≈ {describePayback(w.paybackHours, w.durationHours)}.
+                  ✅ {w.name}: ROI+ ≈ {fmtMoney(w.roi, currency)} • покрытие {Math.round(
+                    (w.coverage ?? 0) * 100
+                  )}% • окупаемость ≈ {describePayback(w.paybackHours, w.durationHours)}.
                 </span>
               )}
             </div>
@@ -1652,7 +1858,9 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
         baseMax: 3000,
         reqSub: null,
         isLimited: false,
-        capSlots: null
+        capSlots: null,
+        category: 'plan',
+        access: 'level'
       }
     ]);
   };
@@ -1661,7 +1869,7 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
     setDrafts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const save = () => setTariffs(drafts);
+  const save = () => setTariffs(drafts.map(normalizeTariff));
 
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -1678,6 +1886,8 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
           <thead>
             <tr>
               <th>Название</th>
+              <th>Тип</th>
+              <th>Доступ</th>
               <th>Дней</th>
               <th>%/день</th>
               <th>Мин Lv</th>
@@ -1694,6 +1904,18 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
               <tr key={t.id}>
                 <td>
                   <input value={t.name} onChange={(e) => update(t.id, 'name', e.target.value)} />
+                </td>
+                <td style={{ width: 120 }}>
+                  <select value={t.category} onChange={(e) => update(t.id, 'category', e.target.value)}>
+                    <option value="plan">Тариф</option>
+                    <option value="program">Программа</option>
+                  </select>
+                </td>
+                <td style={{ width: 140 }}>
+                  <select value={t.access} onChange={(e) => update(t.id, 'access', e.target.value)}>
+                    <option value="level">По уровню</option>
+                    <option value="open">Открыто</option>
+                  </select>
                 </td>
                 <td style={{ width: 80 }}>
                   <input
@@ -1942,6 +2164,15 @@ type SimulationPanelProps = {
   pricing: PricingControls;
 };
 
+type MmmModel = {
+  timeline: { day: number; reserve: number }[];
+  collapseDay: number | null;
+  reserveAfterFees: number;
+  startReserve: number;
+  projectTake: number;
+  dailyOutflowFirst: number;
+};
+
 function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, pricing }: SimulationPanelProps) {
   const addSegment = () => {
     setSegments([
@@ -2055,7 +2286,8 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
         availableBoosters,
         chosenBoosterIds,
         computed,
-        depositPerInvestor
+        depositPerInvestor,
+        planRows: computed.rows
       };
     });
   }, [segments, tariffs, boosters, pricing]);
@@ -2064,7 +2296,10 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
     let investorsTotal = 0;
     let depositTotal = 0;
     let investorNetTotal = 0;
+    let investorNetPerDayTotal = 0;
+    let investorNetPerDayBeforeSubTotal = 0;
     let projectRevenueTotal = 0;
+    let projectRevenuePerDayTotal = 0;
     let boosterRevenueTotal = 0;
     let subscriptionRevenueTotal = 0;
     let grossTotal = 0;
@@ -2079,7 +2314,10 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
       investorsTotal += segment.investors;
       depositTotal += depositPerInvestor * segment.investors;
       investorNetTotal += computed.totals.investorNet * segment.investors;
+      investorNetPerDayTotal += computed.totals.investorNetPerDay * segment.investors;
+      investorNetPerDayBeforeSubTotal += computed.totals.investorNetPerDayBeforeSub * segment.investors;
       projectRevenueTotal += computed.totals.projectRevenue * segment.investors;
+      projectRevenuePerDayTotal += computed.totals.projectRevenuePerDay * segment.investors;
       boosterRevenueTotal += computed.totals.accountCost * segment.investors;
       subscriptionRevenueTotal += computed.totals.subCost * segment.investors;
       grossTotal += computed.totals.grossProfitTotal * segment.investors;
@@ -2096,7 +2334,10 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
       investorsTotal,
       depositTotal,
       investorNetTotal,
+      investorNetPerDayTotal,
+      investorNetPerDayBeforeSubTotal,
       projectRevenueTotal,
+      projectRevenuePerDayTotal,
       boosterRevenueTotal,
       subscriptionRevenueTotal,
       grossTotal,
@@ -2116,6 +2357,89 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
   const boosterPaybackTotal = netPerActiveHourBeforeCostTotal > 0
     ? totals.boosterRevenueTotal / netPerActiveHourBeforeCostTotal
     : null;
+
+  const mmmModel = useMemo<MmmModel | null>(() => {
+    if (segmentSummaries.length === 0) return null;
+
+    let startReserve = 0;
+    let projectTake = 0;
+    const plans: { duration: number; principal: number; dailyPayout: number }[] = [];
+
+    segmentSummaries.forEach(({ segment, computed, depositPerInvestor, planRows }) => {
+      const multiplier = segment.investors;
+      startReserve += depositPerInvestor * multiplier;
+      projectTake += computed.totals.projectRevenue * multiplier;
+      planRows.forEach((row) => {
+        plans.push({
+          duration: row.t.durationDays,
+          principal: row.amount * multiplier,
+          dailyPayout: row.netPerDayAfter * multiplier
+        });
+      });
+    });
+
+    const reserveAfterFees = Math.max(0, startReserve - projectTake);
+
+    if (plans.length === 0) {
+      return {
+        timeline: [
+          { day: 0, reserve: reserveAfterFees },
+          { day: 30, reserve: reserveAfterFees }
+        ],
+        collapseDay: null,
+        reserveAfterFees,
+        startReserve,
+        projectTake,
+        dailyOutflowFirst: 0
+      };
+    }
+
+    const maxDuration = plans.reduce((max, plan) => Math.max(max, plan.duration), 0);
+    const horizon = maxDuration + 30;
+    const timeline: { day: number; reserve: number }[] = [{ day: 0, reserve: reserveAfterFees }];
+    let reserve = reserveAfterFees;
+    let collapseDay: number | null = null;
+    let dailyOutflowFirst = 0;
+
+    for (let day = 1; day <= horizon; day++) {
+      let dayOutflow = 0;
+      let principalOutflow = 0;
+      plans.forEach((plan) => {
+        if (day <= plan.duration) {
+          dayOutflow += plan.dailyPayout;
+        }
+        if (day === plan.duration) {
+          principalOutflow += plan.principal;
+        }
+      });
+
+      if (day === 1) {
+        dailyOutflowFirst = dayOutflow + principalOutflow;
+      }
+
+      reserve -= dayOutflow;
+      reserve -= principalOutflow;
+      timeline.push({ day, reserve });
+
+      if (reserve <= 0) {
+        collapseDay = day;
+        break;
+      }
+    }
+
+    if (collapseDay === null && timeline.length < horizon + 1) {
+      timeline.push({ day: horizon, reserve });
+    }
+
+    return {
+      timeline,
+      collapseDay,
+      reserveAfterFees,
+      startReserve,
+      projectTake,
+      dailyOutflowFirst
+    };
+  }, [segmentSummaries]);
 
   return (
     <div className="card" style={{ display: 'grid', gap: 20 }}>
@@ -2192,13 +2516,31 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
               : '—'}
           </p>
         </div>
+        <div className="sim-summary-card">
+          <h4>MMM выживаемость</h4>
+          <p>
+            {mmmModel
+              ? mmmModel.collapseDay != null
+                ? `${mmmModel.collapseDay} дн.`
+                : '30+ дн.'
+              : '—'}
+          </p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Резерв после комиссий</h4>
+          <p>{mmmModel ? fmtMoney(mmmModel.reserveAfterFees, currency) : '—'}</p>
+        </div>
       </div>
+
+      {mmmModel && mmmModel.timeline.length > 1 && (
+        <MmmChart model={mmmModel} currency={currency} />
+      )}
 
       <div className="grid" style={{ gap: 16 }}>
         {segmentSummaries.map(({ segment, sub, availableBoosters, chosenBoosterIds, computed, depositPerInvestor }) => {
-          const eligibleTariffs = tariffs.filter(
-            (t) => withinLevel(segment.userLevel, t.minLevel) && subMeets(t.reqSub, segment.subscriptionId)
-          );
+          const eligibleTariffs = [...tariffs]
+            .filter((t) => tariffAccessible(t, segment.userLevel, segment.subscriptionId))
+            .sort(sortTariffs);
           return (
             <div key={segment.id} className="card" style={{ display: 'grid', gap: 16 }}>
               <div className="flex-between">
@@ -2283,6 +2625,7 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
                     </option>
                     {eligibleTariffs.map((t) => (
                       <option key={t.id} value={t.id}>
+                        {t.category === 'program' ? '[Программа] ' : ''}
                         {t.name} — {(t.dailyRate * 100).toFixed(2)}%/d
                       </option>
                     ))}
@@ -2437,6 +2780,85 @@ function SimulationPanel({ segments, setSegments, tariffs, boosters, currency, p
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+type MmmChartProps = {
+  model: MmmModel;
+  currency: string;
+};
+
+function MmmChart({ model, currency }: MmmChartProps) {
+  const { timeline, collapseDay, reserveAfterFees, startReserve, projectTake, dailyOutflowFirst } = model;
+  if (!timeline || timeline.length < 2) return null;
+
+  const width = 640;
+  const height = 200;
+  const maxReserve = Math.max(
+    reserveAfterFees,
+    ...timeline.map((pt) => (Number.isFinite(pt.reserve) ? pt.reserve : 0))
+  );
+  const lastDay = timeline[timeline.length - 1].day || 1;
+  const points = timeline.map((pt, idx) => {
+    const x = (idx / Math.max(1, timeline.length - 1)) * width;
+    const value = Math.max(0, pt.reserve);
+    const y = height - (maxReserve > 0 ? (value / maxReserve) * height : 0);
+    return { x, y, reserve: pt.reserve, day: pt.day };
+  });
+  const path = points.map((pt, idx) => `${idx === 0 ? 'M' : 'L'}${pt.x},${pt.y}`).join(' ');
+  const area = `${path} L${width},${height} L0,${height} Z`;
+  const collapseLabel = collapseDay != null
+    ? `Резерв иссякнет через ≈ ${collapseDay} дн.`
+    : 'Резерва хватает на горизонте модели';
+
+  return (
+    <div className="card" style={{ display: 'grid', gap: 16 }}>
+      <div className="flex-between">
+        <div>
+          <h3 className="section-title">MMM прогноз выживаемости</h3>
+          <p className="section-subtitle">
+            Без новых вкладов схема выплачивает текущие обязательства до исчерпания накопленного резерва.
+          </p>
+        </div>
+        <span className="section-subtitle">{collapseLabel}</span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 220 }}>
+        <path d={area} fill="rgba(37, 99, 235, 0.12)" />
+        <path d={path} stroke="#2563eb" strokeWidth={3} fill="none" />
+        {collapseDay != null && (
+          <line
+            x1={(collapseDay / lastDay) * width}
+            x2={(collapseDay / lastDay) * width}
+            y1={0}
+            y2={height}
+            stroke="#f97316"
+            strokeDasharray="6 4"
+          />
+        )}
+      </svg>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <div className="sim-summary-card">
+          <h4>Стартовый резерв</h4>
+          <p>{fmtMoney(startReserve, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>После комиссий</h4>
+          <p>{fmtMoney(reserveAfterFees, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Комиссии проекта</h4>
+          <p>{fmtMoney(projectTake, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Платёж в 1-й день</h4>
+          <p>{fmtMoney(dailyOutflowFirst, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Горизонт модели</h4>
+          <p>{lastDay} дн.</p>
+        </div>
       </div>
     </div>
   );
