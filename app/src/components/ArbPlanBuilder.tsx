@@ -3553,11 +3553,6 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
   );
 }
 
-type BoosterEditorProps = {
-  boosters: Booster[];
-  setBoosters: (boosters: Booster[]) => void;
-};
-
 function BoosterEditor({ boosters, setBoosters }: BoosterEditorProps) {
   const [drafts, setDrafts] = useState<Booster[]>(boosters);
 
