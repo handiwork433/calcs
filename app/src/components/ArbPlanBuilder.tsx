@@ -179,6 +179,7 @@ type ComputedState = {
     netAfterCost: number;
     netAfterCostPerHour: number;
     spend: number;
+    deposit: number;
     roi: number;
     paybackHours: number | null;
     coverageShare: number;
@@ -244,8 +245,8 @@ type InvestorSegment = {
   dailyTopUpPerInvestor: number;
 };
 
-const DEFAULT_RATE_SPREAD = 0.22;
-const DEFAULT_RATE_COMPRESSION = 0.5;
+const DEFAULT_RATE_SPREAD = 0.08;
+const DEFAULT_RATE_COMPRESSION = 0.18;
 
 function createTariff(seed: TariffSeed): Tariff {
   const { rate, rateRange, rateTarget, bandTightness, ...rest } = seed;
@@ -904,8 +905,8 @@ function computePortfolioState({
     const programFee = r.programFee ?? 0;
     const programFeePerDay = r.programFeePerDay ?? (duration > 0 ? programFee / duration : programFee);
 
-    const netPerDayBeforeSub = r.dailyGross - r.feePerDay - accPerDay - programFeePerDay;
-    const netBeforeSub = r.gross - r.fee - accAlloc - programFee;
+    const netPerDayBeforeSub = r.dailyGross - r.feePerDay - programFeePerDay;
+    const netBeforeSub = r.gross - r.fee - programFee;
     const dailyGrossMin = r.amount * rateMin * r.multiplier;
     const dailyGrossMax = r.amount * rateMax * r.multiplier;
     const feePerDayMin = dailyGrossMin * feeRate;
@@ -926,10 +927,10 @@ function computePortfolioState({
     const lockedPerDayBeforeSub = isLocked ? netPerDayBeforeSub : 0;
     const netPerDayFinal = unlockedPerDayBeforeSub - subPerDay;
     const netFinal = netBeforeSub - subAlloc;
-    const netPerDayBeforeSubMin = dailyGrossMin - feePerDayMin - accPerDay - programFeePerDay;
-    const netPerDayBeforeSubMax = dailyGrossMax - feePerDayMax - accPerDay - programFeePerDay;
-    const netBeforeSubMin = grossMin - feeMin - accAlloc - programFee;
-    const netBeforeSubMax = grossMax - feeMax - accAlloc - programFee;
+    const netPerDayBeforeSubMin = dailyGrossMin - feePerDayMin - programFeePerDay;
+    const netPerDayBeforeSubMax = dailyGrossMax - feePerDayMax - programFeePerDay;
+    const netBeforeSubMin = grossMin - feeMin - programFee;
+    const netBeforeSubMax = grossMax - feeMax - programFee;
     const netPerDayFinalMin = netPerDayBeforeSubMin - subPerDay;
     const netPerDayFinalMax = netPerDayBeforeSubMax - subPerDay;
     const netFinalMin = netBeforeSubMin - subAlloc;
@@ -1010,8 +1011,8 @@ function computePortfolioState({
   const appliedBoosters = chosenAcc.filter((b) => (denomByBooster.get(b.id) || 0) > 0);
   const accCostApplied = appliedBoosters.reduce((sum, b) => sum + (b.price || 0), 0);
 
-  const projectRevenue = feeTotal + accCostApplied + subCost + programFees;
-  const projectRevenuePerDay = feePerDayTotal + accountCostPerDay + subCostPerDay + programFeesPerDay;
+  const projectRevenue = feeTotal + subCost + programFees;
+  const projectRevenuePerDay = feePerDayTotal + subCostPerDay + programFeesPerDay;
 
   const liftNet = rows.reduce((s, r) => s + r.boosterLift, 0);
   const liftPerPlanDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
@@ -1063,25 +1064,15 @@ function computePortfolioState({
     }
 
     let total = 0;
-    let oneTimeAccCost = 0;
     let oneTimeProgramFee = 0;
 
     for (const r of base) {
       const projDays = mode === 'auto-roll' ? 30 : Math.min(30, r.t.durationDays);
-      let accAllocLocal = 0;
-      for (const b of chosenAcc) {
-        if (!r.applicable.includes(b)) continue;
-        const d = denomMap.get(b.id) || 0;
-        const share = d ? (r.amount * r.t.durationDays) / d : 0;
-        accAllocLocal += b.price * share;
-      }
-      oneTimeAccCost += accAllocLocal;
       oneTimeProgramFee += r.programFee ?? 0;
 
       const netPerDayBefore = r.dailyGross - r.feePerDay;
       total += netPerDayBefore * projDays;
     }
-    total -= oneTimeAccCost;
     total -= oneTimeProgramFee;
     total -= subCostLocal;
     return total;
@@ -1142,6 +1133,7 @@ function computePortfolioState({
       netAfterCost: liftNet,
       netAfterCostPerHour: liftPerActiveHour,
       spend: accCostApplied,
+      deposit: accCostApplied,
       roi,
       paybackHours,
       coverageShare
@@ -1893,7 +1885,7 @@ export default function ArbPlanBuilder() {
                   <span>{fmtMoney(computed.totals.feeTotal, currency)}</span>
                 </div>
                 <div className="flex-between">
-                  <span>Покупки бустеров:</span>
+                  <span>Бустеры (депозит, вернётся):</span>
                   <span>{fmtMoney(computed.totals.accountCost, currency)}</span>
                 </div>
                 <div className="flex-between">
@@ -1960,7 +1952,11 @@ export default function ArbPlanBuilder() {
                   <span>{fmtPercent(computed.boosterSummary.coverageShare, 0)}</span>
                 </div>
                 <div className="flex-between">
-                  <span>Бонус до оплаты бустеров:</span>
+                  <span>Депозит по бустерам:</span>
+                  <span>{fmtMoney(computed.boosterSummary.deposit, currency)}</span>
+                </div>
+                <div className="flex-between">
+                  <span>Бонус до депозита:</span>
                   <span>{fmtMoney(computed.boosterSummary.netBeforeCost, currency)}</span>
                 </div>
                 <div className="flex-between">
@@ -2497,14 +2493,6 @@ type TariffPickerProps = {
   insights: Record<string, ProgramInsight>;
 };
 
-type TariffOptionCardProps = {
-  tariff: Tariff;
-  currency: string;
-  slotsUsed: number;
-  onAdd: () => void;
-  insight?: ProgramInsight;
-};
-
 function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: RowPreviewProps) {
   const chosenAcc = accountBoosters
     .map((id) => boosters.find((b) => b.id === id))
@@ -2559,14 +2547,15 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
 
   const warns = rowData?.applicable?.map((b) => {
     const detail = details[b.id];
-    const priceShare = detail?.priceShare ?? b.price;
+    const deposit = detail?.priceShare ?? b.price;
     const netGain = detail?.netGain ?? 0;
-    const roi = priceShare > 0 ? netGain - priceShare : netGain;
+    const roiPct = deposit > 0 ? netGain / deposit : null;
     return {
       id: b.id,
       name: b.name,
-      roi,
-      priceShare,
+      netGain,
+      deposit,
+      roiPct,
       paybackHours: detail?.paybackHours ?? null,
       coverage: detail?.coverage ?? 0,
       durationHours: b.durationHours
@@ -2679,16 +2668,23 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
         <div style={{ color: '#64748b', display: 'grid', gap: 4 }}>
           {warns.map((w) => (
             <div key={w.id}>
-              {w.roi < 0 ? (
+              {w.netGain < 0 ? (
                 <span style={{ color: '#fbbf24' }}>
-                  ⚠️ {w.name}: −ROI на долю {fmtMoney(w.priceShare, currency)}. Окупаемость ≈{' '}
-                  {describePayback(w.paybackHours, w.durationHours)}.
+                  ⚠️ {w.name}: снижение ≈ {fmtMoney(w.netGain, currency)} при депозите {fmtMoney(
+                    w.deposit,
+                    currency
+                  )}. Окупаемость ≈ {describePayback(w.paybackHours, w.durationHours)}.
                 </span>
               ) : (
                 <span>
-                  ✅ {w.name}: ROI+ ≈ {fmtMoney(w.roi, currency)} • покрытие {Math.round(
-                    (w.coverage ?? 0) * 100
-                  )}% • окупаемость ≈ {describePayback(w.paybackHours, w.durationHours)}.
+                  ✅ {w.name}: бонус ≈ {fmtMoney(w.netGain, currency)}
+                  {w.roiPct != null ? ` • ROI ${(w.roiPct * 100).toFixed(1)}%` : ''} при депозите {fmtMoney(
+                    w.deposit,
+                    currency
+                  )} • покрытие {Math.round((w.coverage ?? 0) * 100)}% • окупаемость ≈ {describePayback(
+                    w.paybackHours,
+                    w.durationHours
+                  )}.
                 </span>
               )}
             </div>
@@ -2698,6 +2694,7 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
     </div>
   );
 }
+
 
 function TariffPicker({
   categoryFilter,
@@ -2714,6 +2711,25 @@ function TariffPicker({
   tariffSlotsUsed,
   insights
 }: TariffPickerProps) {
+  const [selectedId, setSelectedId] = useState<string>('');
+
+  useEffect(() => {
+    if (selectedId && !eligibleTariffs.some((t) => t.id === selectedId)) {
+      setSelectedId('');
+    }
+  }, [eligibleTariffs, selectedId]);
+
+  const selectedTariff = useMemo(
+    () => eligibleTariffs.find((t) => t.id === selectedId) ?? null,
+    [eligibleTariffs, selectedId]
+  );
+  const selectedInsight = selectedTariff ? insights[selectedTariff.id] : undefined;
+  const selectedSlotsUsed = selectedTariff ? tariffSlotsUsed.get(selectedTariff.id) || 0 : 0;
+  const selectedSlotsLeft =
+    selectedTariff && selectedTariff.isLimited && selectedTariff.capSlots != null
+      ? Math.max(0, selectedTariff.capSlots - selectedSlotsUsed)
+      : null;
+
   const filters = (
     <div className="tariff-picker__filters">
       <div className="tariff-picker__chips">
@@ -2768,23 +2784,47 @@ function TariffPicker({
     </div>
   );
 
+  const handleAdd = () => {
+    if (!selectedTariff) return;
+    onAdd(selectedTariff.id);
+  };
+
+  const optionLabel = (tariff: Tariff) => {
+    const range = `${(tariffRateMin(tariff) * 100).toFixed(2)}–${(tariffRateMax(tariff) * 100).toFixed(2)}%/д`;
+    const payout = tariff.payoutMode === 'locked' ? 'в конце' : 'ежедневно';
+    return `${tariff.name} • ${range} • ${tariff.durationDays}д • ${payout}`;
+  };
+
+  const addDisabled =
+    !selectedTariff || (selectedSlotsLeft != null ? selectedSlotsLeft === 0 : false);
+
   return (
     <div className="tariff-picker">
       {filters}
-      <div className="tariff-picker__results">
-        {eligibleTariffs.map((tariff) => {
-          const used = tariffSlotsUsed.get(tariff.id) || 0;
-          return (
-            <TariffOptionCard
-              key={tariff.id}
-              tariff={tariff}
-              currency={currency}
-              slotsUsed={used}
-              onAdd={() => onAdd(tariff.id)}
-              insight={insights[tariff.id]}
-            />
-          );
-        })}
+      <div className="tariff-picker__selector">
+        <label className="field">
+          <span className="field-label">Тариф / программа</span>
+          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+            <option value="">Выберите тариф…</option>
+            {eligibleTariffs.map((tariff) => (
+              <option key={tariff.id} value={tariff.id}>
+                {optionLabel(tariff)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="tariff-picker__selector-actions">
+          <button className="primary" type="button" onClick={handleAdd} disabled={addDisabled}>
+            Добавить тариф
+          </button>
+          {selectedTariff && (
+            <span className="section-subtitle">
+              {selectedSlotsLeft != null
+                ? `Свободно слотов: ${selectedSlotsLeft}`
+                : `Мин. депозит ${fmtMoney(selectedTariff.baseMin, currency)}`}
+            </span>
+          )}
+        </div>
         {eligibleTariffs.length === 0 && (
           <div className="tariff-picker__empty">
             <p>По выбранным фильтрам сейчас нет доступных тарифов.</p>
@@ -2794,175 +2834,90 @@ function TariffPicker({
           </div>
         )}
       </div>
+      {selectedTariff ? (
+        <TariffQuickPreview
+          tariff={selectedTariff}
+          currency={currency}
+          slotsUsed={selectedSlotsUsed}
+          insight={selectedInsight}
+        />
+      ) : eligibleTariffs.length > 0 ? (
+        <p className="section-subtitle">
+          Выберите тариф в списке, чтобы увидеть рекомендации по депозиту и премии.
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function TariffOptionCard({ tariff, currency, slotsUsed, onAdd, insight }: TariffOptionCardProps) {
-  const rateLabel = `${(tariffRateMin(tariff) * 100).toFixed(2)}–${(tariffRateMax(tariff) * 100).toFixed(2)}%/д`;
-  const payoutIcon = tariff.payoutMode === 'locked' ? '🔒' : '💸';
-  const typeIcon = tariff.category === 'program' ? '🎯' : '📈';
+type TariffQuickPreviewProps = {
+  tariff: Tariff;
+  currency: string;
+  slotsUsed: number;
+  insight?: ProgramInsight;
+};
+
+function TariffQuickPreview({ tariff, currency, slotsUsed, insight }: TariffQuickPreviewProps) {
+  const rateRange = `${(tariffRateMin(tariff) * 100).toFixed(2)}–${(tariffRateMax(tariff) * 100).toFixed(2)}%/д`;
   const left = tariff.isLimited && tariff.capSlots != null ? Math.max(0, tariff.capSlots - slotsUsed) : null;
   const recommended = insight?.recommendedPrincipal ?? tariff.recommendedPrincipal;
-  const premiumInfo = insight?.premiumAtTarget ?? null;
-  const premiumTarget = insight?.requiredPremium ?? null;
-  const premiumMet = insight?.requirementMet ?? false;
+  const premiumAtTarget = insight?.premiumAtTarget ?? null;
+  const premiumRequirement = insight?.requiredPremium ?? null;
   const entryFee = tariff.entryFee ?? 0;
-  const metaBadges: string[] = [tariff.category === 'program' ? 'Программа' : 'Тариф'];
-  if (tariff.access === 'open') {
-    metaBadges.push('Открыто для всех уровней');
-  } else {
-    metaBadges.push(`Lv ≥ ${tariff.minLevel}`);
-  }
-  if (tariff.reqSub) {
-    metaBadges.push(`Подписка: ${tariff.reqSub}`);
-  }
-  if (left != null) {
-    metaBadges.push(`Свободно слотов: ${left}`);
-  }
+  const payoutLabel = tariff.payoutMode === 'locked' ? 'Начисление в конце срока' : 'Начисление ежедневно';
+  const competitor = insight?.competitor ?? null;
 
   return (
-    <div className="tariff-card">
-      <div className="tariff-card__header">
-        <div className="tariff-card__icon" aria-hidden="true">{typeIcon}</div>
-        <div className="tariff-card__title">
-          <strong>{tariff.name}</strong>
-          <span className="section-subtitle">
-            {rateLabel} • {tariff.durationDays} дн.
+    <div className="tariff-preview">
+      <div className="tariff-preview__header">
+        <div>
+          <h3>{tariff.name}</h3>
+          <span className="muted">ID: {tariff.id}</span>
+        </div>
+        <div className="tariff-preview__badges">
+          <span className="badge badge-cool">{tariff.category === 'program' ? 'Программа' : 'Тариф'}</span>
+          <span className="badge badge-soft">{payoutLabel}</span>
+          {tariff.access === 'open' ? (
+            <span className="badge">Доступно всем уровням</span>
+          ) : (
+            <span className="badge">Lv ≥ {tariff.minLevel}</span>
+          )}
+          {tariff.reqSub && <span className="badge">Подписка: {tariff.reqSub}</span>}
+          {entryFee > 0 && <span className="badge badge-warm">Вход: {fmtMoney(entryFee, currency)}</span>}
+          {left != null && (
+            <span className={`badge ${left === 0 ? 'badge-warn' : 'badge-cool'}`}>
+              Свободно: {left}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="tariff-preview__grid">
+        <div>
+          <span className="field-label">Диапазон доходности</span>
+          <strong>{rateRange}</strong>
+          <span className="muted">Цель {(tariff.dailyRateTarget * 100).toFixed(2)}%/д</span>
+        </div>
+        <div>
+          <span className="field-label">Срок программы</span>
+          <strong>{tariff.durationDays} дней</strong>
+          <span className="muted">
+            Депозит: {fmtMoney(tariff.baseMin, currency)} – {fmtMoney(tariff.baseMax, currency)}
           </span>
         </div>
-        <button className="primary" type="button" onClick={onAdd}>
-          Добавить
-        </button>
-      </div>
-      <div className="tariff-card__meta">
-        <span>
-          {payoutIcon}{' '}
-          {tariff.payoutMode === 'locked' ? 'Начисления копятся и выплачиваются в конце' : 'Начисления поступают каждый день'}
-        </span>
-        <span>
-          Депозит {fmtMoney(tariff.baseMin, currency)} – {fmtMoney(tariff.baseMax, currency)}
-        </span>
-        {entryFee > 0 && <span>Вход программы {fmtMoney(entryFee, currency)}</span>}
-        {recommended != null && (
-          <span>Рекомендуемый депозит: {fmtMoney(recommended, currency)}</span>
-        )}
-      </div>
-      <div className="tariff-card__badges">
-        {metaBadges.map((badge) => (
-          <span key={badge} className="badge badge--ghost">
-            {badge}
-          </span>
-        ))}
-      </div>
-      {insight && (
-        <div
-          className="tariff-card__insight"
-          style={{ color: premiumMet ? '#166534' : '#b45309' }}
-        >
-          {premiumMet ? '✅' : '⚠️'} Премия к базовому предложению:{' '}
-          {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)})
+        <div>
+          <span className="field-label">Рекомендация по депозиту</span>
+          <strong>{recommended ? fmtMoney(recommended, currency) : '—'}</strong>
+          {premiumRequirement != null && (
+            <span className="muted">Нужна премия ≥ {fmtPercent(premiumRequirement, 1)}</span>
+          )}
         </div>
-      )}
-    </div>
-  );
-}
-
-type TariffEditorProps = {
-  tariffs: Tariff[];
-  setTariffs: (tariffs: Tariff[]) => void;
-};
-
-type PricingEditorProps = {
-  pricing: PricingControls;
-  setPricing: (pricing: PricingControls) => void;
-};
-
-type ProgramDesignEditorProps = {
-  controls: ProgramDesignControls;
-  setControls: (controls: ProgramDesignControls) => void;
-};
-
-function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
-  const [draft, setDraft] = useState<PricingControls>(pricing);
-
-  useEffect(() => {
-    setDraft(pricing);
-  }, [pricing]);
-
-  const update = <K extends keyof PricingControls>(field: K, value: PricingControls[K]) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const save = () => {
-    setPricing(draft);
-  };
-
-  return (
-    <div className="grid" style={{ gap: 12 }}>
-      <div className="grid" style={{ gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-        <label>
-          <span className="section-subtitle">Доля выгоды с минимальных сумм (проекта)</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={draft.baseCapturePct}
-            onChange={(e) => update('baseCapturePct', Number(e.target.value))}
-          />
-        </label>
-        <label>
-          <span className="section-subtitle">Доля с «китовского» прироста</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={draft.whaleCapturePct}
-            onChange={(e) => update('whaleCapturePct', Number(e.target.value))}
-          />
-        </label>
-        <label>
-          <span className="section-subtitle">Минимальный бонус инвестору (ROI от цены, %)</span>
-          <input
-            type="number"
-            min={0}
-            max={500}
-            value={draft.investorRoiFloorPct}
-            onChange={(e) => update('investorRoiFloorPct', Number(e.target.value))}
-          />
-        </label>
-        <label>
-          <span className="section-subtitle">Мин. цена бустера</span>
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={draft.minPrice}
-            onChange={(e) => update('minPrice', Number(e.target.value))}
-          />
-        </label>
-        <label>
-          <span className="section-subtitle">Макс. цена бустера</span>
-          <input
-            type="number"
-            min={draft.minPrice}
-            step={1}
-            value={draft.maxPrice}
-            onChange={(e) => update('maxPrice', Number(e.target.value))}
-          />
-        </label>
-      </div>
-      <div className="section-subtitle" style={{ color: '#1e293b' }}>
-        Значение 100% гарантирует, что инвестор заработает не меньше цены бустера сверху. Можно
-        увеличивать параметр для щедрых промо или снижать для агрессивной монетизации.
-      </div>
-      <div className="flex" style={{ justifyContent: 'flex-end', gap: 8 }}>
-        <button className="ghost" onClick={() => setDraft(pricing)}>
-          Отменить
-        </button>
-        <button className="primary" onClick={save}>
-          Сохранить
-        </button>
+        <div>
+          <span className="field-label">Премия к бесплатным</span>
+          <strong>{premiumAtTarget != null ? fmtPercent(premiumAtTarget, 1) : '—'}</strong>
+          {competitor && (
+            <span className="muted">Сравнение с {competitor.name}</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2988,7 +2943,7 @@ function ProgramDesignEditor({ controls, setControls }: ProgramDesignEditorProps
   };
 
   return (
-    <div className="grid" style={{ gap: 12 }}>
+    <div className="grid settings-panel">
       <label className="field">
         <span className="field-label">Относительная премия к бесплатным тарифам (%)</span>
         <input
@@ -3094,7 +3049,7 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
   const save = () => setTariffs(drafts.map(normalizeTariff));
 
   return (
-    <div className="grid" style={{ gap: 12 }}>
+    <div className="grid tariff-editor" style={{ gap: 12 }}>
       <div className="flex-between">
         <p className="section-subtitle" style={{ maxWidth: 520 }}>
           Добавляйте сезонные тарифы, ограничивайте слоты и требования по подписке. При сохранении новые тарифы сразу доступны в портфеле и симуляции.
@@ -3325,7 +3280,7 @@ function BoosterEditor({ boosters, setBoosters }: BoosterEditorProps) {
   const save = () => setBoosters(drafts);
 
   return (
-    <div className="grid" style={{ gap: 12 }}>
+    <div className="grid tariff-editor" style={{ gap: 12 }}>
       <div className="flex-between">
         <p className="section-subtitle" style={{ maxWidth: 520 }}>
           Бустеры покупаются на аккаунт и применяются ко всем тарифам, кроме указанных в блок-листе. Алгоритм динамического ценообразования дополнительно скорректирует итоговую стоимость под портфель.
@@ -3607,7 +3562,7 @@ function SimulationPanel({
     let investorNetPerDayBeforeSubTotal = 0;
     let projectRevenueTotal = 0;
     let projectRevenuePerDayTotal = 0;
-    let boosterRevenueTotal = 0;
+    let boosterEscrowTotal = 0;
     let subscriptionRevenueTotal = 0;
     let grossTotal = 0;
     let feeTotal = 0;
@@ -3636,7 +3591,7 @@ function SimulationPanel({
       investorNetPerDayBeforeSubTotal += computed.totals.investorNetPerDayBeforeSub * segment.investors;
       projectRevenueTotal += computed.totals.projectRevenue * segment.investors;
       projectRevenuePerDayTotal += computed.totals.projectRevenuePerDay * segment.investors;
-      boosterRevenueTotal += computed.totals.accountCost * segment.investors;
+      boosterEscrowTotal += computed.totals.accountCost * segment.investors;
       subscriptionRevenueTotal += computed.totals.subCost * segment.investors;
       grossTotal += computed.totals.grossProfitTotal * segment.investors;
       feeTotal += computed.totals.feeTotal * segment.investors;
@@ -3667,7 +3622,7 @@ function SimulationPanel({
       investorNetPerDayBeforeSubTotal,
       projectRevenueTotal,
       projectRevenuePerDayTotal,
-      boosterRevenueTotal,
+      boosterEscrowTotal,
       subscriptionRevenueTotal,
       grossTotal,
       feeTotal,
@@ -3686,12 +3641,12 @@ function SimulationPanel({
     };
   }, [segmentSummaries]);
 
-  const boosterRoiTotal = totals.boosterRevenueTotal > 0 ? totals.boosterLiftTotal / totals.boosterRevenueTotal : 0;
+  const boosterRoiTotal = totals.boosterEscrowTotal > 0 ? totals.boosterLiftTotal / totals.boosterEscrowTotal : 0;
   const netPerActiveHourBeforeCostTotal = totals.boosterActiveHoursTotal > 0
     ? totals.boosterNetBeforeCostTotal / totals.boosterActiveHoursTotal
     : 0;
   const boosterPaybackTotal = netPerActiveHourBeforeCostTotal > 0
-    ? totals.boosterRevenueTotal / netPerActiveHourBeforeCostTotal
+    ? totals.boosterEscrowTotal / netPerActiveHourBeforeCostTotal
     : null;
 
   const mmmModel = useMemo<MmmModel | null>(() => {
@@ -4101,8 +4056,9 @@ function SimulationPanel({
           <p>{fmtMoney(totals.projectRevenueTotal, currency)}</p>
         </div>
         <div className="sim-summary-card">
-          <h4>Выручка от бустеров</h4>
-          <p>{fmtMoney(totals.boosterRevenueTotal, currency)}</p>
+          <h4>Депозит по бустерам</h4>
+          <p>{fmtMoney(totals.boosterEscrowTotal, currency)}</p>
+          <span className="muted">сумма к возврату инвесторам</span>
         </div>
         <div className="sim-summary-card">
           <h4>Выручка от подписок</h4>
@@ -4164,7 +4120,7 @@ function SimulationPanel({
         <div className="sim-summary-card">
           <h4>ROI бустеров</h4>
           <p>
-            {totals.boosterRevenueTotal > 0
+            {totals.boosterEscrowTotal > 0
               ? `${(boosterRoiTotal * 100).toFixed(1)}%`
               : '—'}
           </p>
@@ -4172,7 +4128,7 @@ function SimulationPanel({
         <div className="sim-summary-card">
           <h4>Окупаемость бустеров</h4>
           <p>
-            {totals.boosterRevenueTotal > 0
+            {totals.boosterEscrowTotal > 0
               ? describePayback(boosterPaybackTotal, totals.boosterActiveHoursTotal)
               : '—'}
           </p>
@@ -4409,7 +4365,7 @@ function SimulationPanel({
                       <td>{fmtMoney(computed.totals.feeTotal * segment.investors, currency)}</td>
                     </tr>
                     <tr>
-                      <td>Стоимость бустеров</td>
+                      <td>Депозит по бустерам</td>
                       <td>{fmtMoney(computed.totals.accountCost, currency)}</td>
                       <td>{fmtMoney(computed.totals.accountCost * segment.investors, currency)}</td>
                     </tr>
@@ -4442,7 +4398,7 @@ function SimulationPanel({
                       </td>
                     </tr>
                     <tr>
-                      <td>Бонус до оплаты бустеров</td>
+                      <td>Бонус до депозита</td>
                       <td>{fmtMoney(computed.boosterSummary.netBeforeCost, currency)}</td>
                       <td>{fmtMoney(computed.boosterSummary.netBeforeCost * segment.investors, currency)}</td>
                     </tr>

@@ -163,6 +163,22 @@ textarea {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
 input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -523,6 +539,22 @@ textarea:focus {
   gap: 16px;
 }
 
+.tariff-picker__selector {
+  display: grid;
+  gap: 12px;
+  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.tariff-picker__selector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .tariff-picker__filters {
   display: grid;
   gap: 12px;
@@ -549,12 +581,6 @@ textarea:focus {
 .tariff-picker__search input[type='search'] {
   flex: 1;
   min-width: 200px;
-}
-
-.tariff-picker__results {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .tariff-picker__empty {
@@ -604,8 +630,59 @@ textarea:focus {
   border: 1px solid rgba(59, 130, 246, 0.18);
 }
 
+.tariff-preview {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.85);
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.tariff-preview__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.tariff-preview__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tariff-preview__grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.tariff-preview__grid strong {
+  font-size: 16px;
+}
+
 textarea {
   min-height: 54px;
+}
+
+.tariff-editor table {
+  min-width: 1100px;
+}
+
+.tariff-editor table input,
+.tariff-editor table select {
+  min-width: 120px;
+}
+
+.tariff-editor table td {
+  min-width: 110px;
+}
+
+.settings-panel {
+  gap: 14px;
 }
 
 @media (max-width: 960px) {

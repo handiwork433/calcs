@@ -47,6 +47,9 @@ After the dependencies are installed, start the development server with `npm run
 - MMM-style survival model that charts how long reserves last without new deposits, complete with reserve vs. time visualisation
 - MMM survival model now guards against runaway reinvest queues/horizons, truncating gracefully and labelling the chart when limits are hit instead of freezing the page
 - Redesigned tariff catalogue with iconography, locked-state messaging and richer programme callouts for quicker portfolio assembly
+- Compact dropdown-based tariff picker with an inline preview (yield band, slot availability, recommended deposit and premium hints)
+- Booster deposits now treated as refundable escrow – excluded from project revenue and surfaced in planner/simulation totals
+- Compressed yield bands to keep daily percentage spreads tight, with min/max corridors reflected across planner analytics
 - Refined glassmorphism-inspired UI with gradient background, pill toggles and softened cards for a contemporary white dashboard look
 - Local persistence of tariff/booster catalogs plus booster pricing and programme premium controls via `localStorage`
 
