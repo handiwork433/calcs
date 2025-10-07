@@ -2335,6 +2335,22 @@ type TariffRowProps = {
   insight?: ProgramInsight;
 };
 
+// Преобразуем число в строку, чтобы поле ввода корректно поддерживало редактирование
+function formatAmountInput(value: number) {
+  return Number.isFinite(value) ? `${value}` : '';
+}
+
+// Убираем дубли пресетов (точность до центов), чтобы не плодить одинаковые кнопки
+function dedupePresets(items: { label: string; value: number }[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.label}-${Math.round(item.value * 100)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return Number.isFinite(item.value);
+  });
+}
+
 function TariffRow({
   item,
   currency,
@@ -2349,6 +2365,7 @@ function TariffRow({
   insight
 }: TariffRowProps) {
   const t = tariffs.find((x) => x.id === item.tariffId)!;
+  const [amountInput, setAmountInput] = useState<string>(() => formatAmountInput(item.amount));
   const levelOk = t.access === 'open' || withinLevel(userLevel, t.minLevel);
   const subOk = !t.reqSub || subMeets(t.reqSub, activeSubId);
   const warnLevel = !levelOk;
@@ -2370,6 +2387,60 @@ function TariffRow({
   const rateMax = tariffRateMax(t);
   const rateTarget = tariffRate(t);
   const rateLabel = `${(rateMin * 100).toFixed(2)}–${(rateMax * 100).toFixed(2)}%/d`;
+
+  useEffect(() => {
+    setAmountInput(formatAmountInput(item.amount));
+  }, [item.amount]);
+
+  const commitAmount = (raw: number) => {
+    const bounded = clamp(raw, t.baseMin, t.baseMax);
+    setAmountInput(formatAmountInput(bounded));
+    updateAmount(item.id, bounded);
+  };
+
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setAmountInput(value);
+
+    if (value.trim() === '') {
+      return;
+    }
+
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      updateAmount(item.id, parsed);
+    }
+  };
+
+  const handleInputBlur = () => {
+    if (amountInput.trim() === '') {
+      setAmountInput(formatAmountInput(item.amount));
+      return;
+    }
+
+    const parsed = Number(amountInput);
+    if (!Number.isFinite(parsed)) {
+      setAmountInput(formatAmountInput(item.amount));
+      return;
+    }
+
+    commitAmount(parsed);
+  };
+
+  const presetCandidates: { label: string; value: number }[] = [
+    { label: 'Мин', value: t.baseMin },
+    { label: '50/50', value: (t.baseMin + t.baseMax) / 2 },
+    { label: 'Макс', value: t.baseMax }
+  ];
+
+  if (recommended) {
+    presetCandidates.splice(1, 0, { label: 'Реком.', value: recommended });
+  }
+
+  const presetButtons = dedupePresets(presetCandidates).map(({ label, value }) => ({
+    label,
+    value: clamp(value, t.baseMin, t.baseMax)
+  }));
 
   return (
     <div className="card">
@@ -2439,15 +2510,36 @@ function TariffRow({
         </div>
       )}
 
-      <label>
+      <label className="tariff-row__input">
         <div className="section-subtitle">Сумма инвестиций</div>
         <input
           type="number"
-          value={item.amount}
+          value={amountInput}
           min={0}
-          onChange={(e) => updateAmount(item.id, Number(e.target.value))}
+          onChange={handleInputChange}
+          onBlur={handleInputBlur}
+          placeholder={fmtMoney(t.baseMin, currency)}
         />
+        <span className="field-hint">
+          Лимиты: {fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}
+        </span>
       </label>
+
+      {presetButtons.length > 0 && (
+        <div className="tariff-row__presets">
+          {presetButtons.map((preset) => (
+            <button
+              key={`${preset.label}-${preset.value}`}
+              type="button"
+              className="chip tariff-row__preset"
+              onClick={() => commitAmount(preset.value)}
+            >
+              {preset.label}
+              <span className="muted">{fmtMoney(preset.value, currency)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {t.category === 'program' && (
         <div className="section-subtitle" style={{ color: '#0f172a' }}>
