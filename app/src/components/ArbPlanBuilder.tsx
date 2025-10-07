@@ -2575,6 +2575,26 @@ type RowPreviewProps = {
   insight?: ProgramInsight;
 };
 
+type TariffEditorProps = {
+  tariffs: Tariff[];
+  setTariffs: (tariffs: Tariff[]) => void;
+};
+
+type BoosterEditorProps = {
+  boosters: Booster[];
+  setBoosters: (boosters: Booster[]) => void;
+};
+
+type PricingEditorProps = {
+  pricing: PricingControls;
+  setPricing: (controls: PricingControls) => void;
+};
+
+type ProgramDesignEditorProps = {
+  controls: ProgramDesignControls;
+  setControls: (controls: ProgramDesignControls) => void;
+};
+
 type TariffPickerProps = {
   categoryFilter: 'all' | 'plan' | 'program';
   setCategoryFilter: (value: 'all' | 'plan' | 'program') => void;
@@ -2940,7 +2960,7 @@ function TariffPicker({
           </select>
         </label>
         {selectedTariff && (
-          <label className="field" style={{ flex: '0 0 220px' }}>
+          <label className="field" style={{ flex: '1 1 260px', minWidth: 220 }}>
             <span className="field-label">Депозит при добавлении</span>
             <input
               type="number"
@@ -2948,6 +2968,7 @@ function TariffPicker({
               max={selectedTariff.baseMax}
               step={Math.max(1, Math.round(selectedTariff.baseMin / 10) || 1)}
               value={selectedAmount ?? ''}
+              inputMode="decimal"
               onChange={(e) => {
                 const value = e.target.value;
                 setSelectedAmount(value === '' ? null : Number(value));
@@ -3120,6 +3141,116 @@ function TariffQuickPreview({
             {paybackDays != null ? ` • ≈ ${paybackDays} дн.` : ''}
           </span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
+  const [draft, setDraft] = useState<PricingControls>(pricing);
+
+  useEffect(() => {
+    setDraft(pricing);
+  }, [pricing]);
+
+  const update = (field: keyof PricingControls, value: number) => {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const save = () => {
+    const normalized: PricingControls = {
+      baseCapturePct: clamp(draft.baseCapturePct, 0, 100),
+      whaleCapturePct: clamp(draft.whaleCapturePct, 0, 100),
+      investorRoiFloorPct: Math.max(0, draft.investorRoiFloorPct),
+      minPrice: Math.max(0, draft.minPrice),
+      maxPrice: Math.max(Math.max(0, draft.minPrice), draft.maxPrice)
+    };
+    setPricing(normalized);
+  };
+
+  const baseCaptureShare = clamp(draft.baseCapturePct / 100, 0, 1);
+  const whaleCaptureShare = clamp(draft.whaleCapturePct / 100, 0, 1);
+  const roiFloorShare = Math.max(0, draft.investorRoiFloorPct / 100);
+  const sampleWin = 100; // условная чистая выгода до учёта цены бустера
+  const baseSuggested = sampleWin * baseCaptureShare;
+  const whaleSuggested = baseSuggested + Math.max(0, sampleWin - baseSuggested) * whaleCaptureShare;
+  const roiFloorBonus = draft.minPrice > 0 ? draft.minPrice * roiFloorShare : 0;
+
+  return (
+    <div className="pricing-editor">
+      <div className="pricing-editor__grid">
+        <label className="field">
+          <span className="field-label">Доля выгоды на малых портфелях (%)</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={draft.baseCapturePct}
+            onChange={(e) => update('baseCapturePct', Number(e.target.value))}
+          />
+          <span className="field-hint">Забираемая часть прироста при депозите около минимума тарифа.</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Доля выгоды у «китов» (%)</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={draft.whaleCapturePct}
+            onChange={(e) => update('whaleCapturePct', Number(e.target.value))}
+          />
+          <span className="field-hint">Дополнительная доля прироста, если портфель покрывает крупные депозиты.</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Гарантированный бонус инвестору (%)</span>
+          <input
+            type="number"
+            min={0}
+            value={draft.investorRoiFloorPct}
+            onChange={(e) => update('investorRoiFloorPct', Number(e.target.value))}
+          />
+          <span className="field-hint">Минимальная доходность от покупки бустера относительно его цены.</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Минимальная цена бустера</span>
+          <input
+            type="number"
+            min={0}
+            value={draft.minPrice}
+            onChange={(e) => update('minPrice', Number(e.target.value))}
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Максимальная цена бустера</span>
+          <input
+            type="number"
+            min={0}
+            value={draft.maxPrice}
+            onChange={(e) => update('maxPrice', Number(e.target.value))}
+          />
+        </label>
+      </div>
+
+      <div className="pricing-editor__insight">
+        <p>
+          При приросте {fmtMoney(sampleWin, 'USD')} (условный пример) алгоритм предложит цену около{' '}
+          {fmtMoney(baseSuggested, 'USD')} для базовых депозитов и до {fmtMoney(whaleSuggested, 'USD')} для крупных
+          портфелей.
+        </p>
+        <p className="section-subtitle">
+          Минимальный бонус инвестора при текущей нижней цене составит ≈ {fmtMoney(roiFloorBonus, 'USD')} (ROI{' '}
+          {fmtPercent(roiFloorShare, 0)}), поэтому проект не считает продажи бустеров доходом и возвращает депозит за
+          бустер вместе с бонусом.
+        </p>
+      </div>
+
+      <div className="flex" style={{ justifyContent: 'flex-end', gap: 8 }}>
+        <button className="ghost" onClick={() => setDraft(pricing)}>
+          Сброс
+        </button>
+        <button className="primary" onClick={save}>
+          Сохранить
+        </button>
       </div>
     </div>
   );

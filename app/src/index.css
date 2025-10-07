@@ -561,8 +561,10 @@ textarea:focus {
 }
 
 .tariff-picker__selector {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
   background: rgba(248, 250, 252, 0.85);
   border: 1px solid rgba(203, 213, 225, 0.6);
   border-radius: 16px;
@@ -731,6 +733,33 @@ textarea {
 
 .tariff-editor table td {
   min-width: 110px;
+}
+
+.pricing-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.pricing-editor__grid {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 960px) {
+  .pricing-editor__grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+.pricing-editor__insight {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  background: rgba(248, 250, 252, 0.85);
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #0f172a;
 }
 
 .settings-panel {
