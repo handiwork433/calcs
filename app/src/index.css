@@ -397,6 +397,59 @@ textarea:focus {
   cursor: not-allowed;
 }
 
+.tariff-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tariff-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 165, 233, 0.12));
+  font-size: 24px;
+}
+
+.tariff-card__title {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tariff-card__title strong {
+  font-size: 17px;
+  color: #0f172a;
+}
+
+.tariff-card__meta {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.tariff-card__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tariff-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tariff-card__insight {
+  font-size: 13px;
+}
+
 .tariff-card-head {
   display: flex;
   align-items: center;
@@ -463,6 +516,67 @@ textarea:focus {
   background: linear-gradient(135deg, #1d4ed8, #1fa8ff);
   transform: translateY(-1px);
   box-shadow: 0 14px 32px rgba(30, 64, 175, 0.35);
+}
+
+.tariff-picker {
+  display: grid;
+  gap: 16px;
+}
+
+.tariff-picker__filters {
+  display: grid;
+  gap: 12px;
+  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.tariff-picker__chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tariff-picker__search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.tariff-picker__search input[type='search'] {
+  flex: 1;
+  min-width: 200px;
+}
+
+.tariff-picker__results {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.tariff-picker__empty {
+  padding: 32px;
+  border-radius: 18px;
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  background: rgba(248, 250, 252, 0.9);
+  text-align: center;
+  display: grid;
+  gap: 8px;
+}
+
+.chip--active {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(14, 165, 233, 0.85));
+  color: #ffffff;
+  border-color: rgba(37, 99, 235, 0.85);
+}
+
+.badge--ghost {
+  background: rgba(241, 245, 249, 0.8);
+  color: #1f2937;
+  border: 1px solid rgba(203, 213, 225, 0.6);
 }
 
 .flex {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 
 type Subscription = {
   id: string;
@@ -224,6 +224,12 @@ type ScenarioProfile = {
   reinvestShare: number;
   marketingCostPerInvestor: number;
   rampCompression: number;
+  acquisitionFloor: number;
+  dailyAdBudgetGrowth: number;
+  seasonalityAmplitude: number;
+  momentumMidpoint: number;
+  momentumSlope: number;
+  retentionBoost: number;
 };
 
 type InvestorSegment = {
@@ -398,7 +404,13 @@ const SCENARIO_WORST: ScenarioProfile = {
   churnProbability: 0.08,
   reinvestShare: 0.12,
   marketingCostPerInvestor: 38,
-  rampCompression: 1.15
+  rampCompression: 1.15,
+  acquisitionFloor: 0.32,
+  dailyAdBudgetGrowth: 0.015,
+  seasonalityAmplitude: 0.12,
+  momentumMidpoint: 65,
+  momentumSlope: 0.07,
+  retentionBoost: -0.18
 };
 
 const SCENARIO_BEST: ScenarioProfile = {
@@ -410,7 +422,13 @@ const SCENARIO_BEST: ScenarioProfile = {
   churnProbability: 0.012,
   reinvestShare: 0.6,
   marketingCostPerInvestor: 14,
-  rampCompression: 0.65
+  rampCompression: 0.65,
+  acquisitionFloor: 0.95,
+  dailyAdBudgetGrowth: 0.12,
+  seasonalityAmplitude: 0.38,
+  momentumMidpoint: 32,
+  momentumSlope: 0.16,
+  retentionBoost: 0.28
 };
 
 const MMM_MAX_DAYS = 240;
@@ -440,7 +458,21 @@ function blendScenario(bias: number): ScenarioProfile {
       SCENARIO_BEST.marketingCostPerInvestor,
       t
     ),
-    rampCompression: lerp(SCENARIO_WORST.rampCompression, SCENARIO_BEST.rampCompression, t)
+    rampCompression: lerp(SCENARIO_WORST.rampCompression, SCENARIO_BEST.rampCompression, t),
+    acquisitionFloor: lerp(SCENARIO_WORST.acquisitionFloor, SCENARIO_BEST.acquisitionFloor, t),
+    dailyAdBudgetGrowth: lerp(
+      SCENARIO_WORST.dailyAdBudgetGrowth,
+      SCENARIO_BEST.dailyAdBudgetGrowth,
+      t
+    ),
+    seasonalityAmplitude: lerp(
+      SCENARIO_WORST.seasonalityAmplitude,
+      SCENARIO_BEST.seasonalityAmplitude,
+      t
+    ),
+    momentumMidpoint: lerp(SCENARIO_WORST.momentumMidpoint, SCENARIO_BEST.momentumMidpoint, t),
+    momentumSlope: lerp(SCENARIO_WORST.momentumSlope, SCENARIO_BEST.momentumSlope, t),
+    retentionBoost: lerp(SCENARIO_WORST.retentionBoost, SCENARIO_BEST.retentionBoost, t)
   };
   return profile;
 }
@@ -460,6 +492,24 @@ function describePayback(hours: number | null, activeHours?: number) {
     return `${label} (дольше срока ${formatHours(activeHours)})`;
   }
   return label;
+}
+
+function logisticGrowth(day: number, midpoint: number, slope: number) {
+  const x = day - midpoint;
+  return 1 / (1 + Math.exp(-slope * x));
+}
+
+function seasonalMod(day: number, amplitude: number) {
+  if (amplitude <= 0) return 1;
+  const phase = (day / 30) * Math.PI * 2;
+  return 1 + amplitude * Math.sin(phase);
+}
+
+function computeMomentum(day: number, horizon: number, profile: ScenarioProfile) {
+  const logistic = logisticGrowth(day, profile.momentumMidpoint, profile.momentumSlope);
+  const seasonal = seasonalMod(day, profile.seasonalityAmplitude);
+  const ramp = Math.min(1, day / Math.max(30, horizon * 0.4));
+  return Math.max(profile.acquisitionFloor, logistic * seasonal * ramp);
 }
 
 const DEFAULT_PRICING: PricingControls = {
@@ -1299,6 +1349,16 @@ function runSelfTests() {
     rangeState.totals.investorNetPerDayMin <= rangeState.totals.investorNetPerDayMax + 1e-9,
     'min daily payout should not exceed max daily payout'
   );
+
+  const crisisProfile = blendScenario(0);
+  const growthProfile = blendScenario(100);
+  console.assert(
+    crisisProfile.acquisitionMultiplier < growthProfile.acquisitionMultiplier,
+    'growth scenario should acquire faster'
+  );
+  const earlyMomentum = computeMomentum(5, 180, crisisProfile);
+  const lateMomentum = computeMomentum(120, 180, growthProfile);
+  console.assert(lateMomentum > earlyMomentum, 'momentum should accelerate in growth scenario');
 }
 
 function evaluateBoosterAgainstPortfolio({
@@ -1781,89 +1841,21 @@ export default function ArbPlanBuilder() {
                   Сбросить фильтры
                 </button>
               </div>
-              <div
-                className="flex"
-                style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}
-              >
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span className="section-subtitle">Категория:</span>
-                  {([
-                    ['all', 'Все'],
-                    ['plan', 'Тарифы'],
-                    ['program', 'Программы']
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className="chip"
-                      style={{
-                        background: tariffCategoryFilter === value ? '#2563eb' : '#e2e8f0',
-                        color: tariffCategoryFilter === value ? '#fff' : '#1e293b'
-                      }}
-                      onClick={() => setTariffCategoryFilter(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span className="section-subtitle">Выплаты:</span>
-                  {([
-                    ['all', 'Любые'],
-                    ['stream', 'Ежедневно'],
-                    ['locked', 'В конце']
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className="chip"
-                      style={{
-                        background: tariffPayoutFilter === value ? '#2563eb' : '#e2e8f0',
-                        color: tariffPayoutFilter === value ? '#fff' : '#1e293b'
-                      }}
-                      onClick={() => setTariffPayoutFilter(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="search"
-                  placeholder="Поиск по названию"
-                  value={tariffSearch}
-                  onChange={(e) => setTariffSearch(e.target.value)}
-                  style={{ minWidth: 160 }}
-                />
-              </div>
-              <select
-                onChange={(e) => e.target.value && addTariff(e.target.value)}
-                value=""
-                disabled={eligibleTariffs.length === 0}
-              >
-                <option value="" disabled>
-                  {eligibleTariffs.length === 0
-                    ? 'Нет тарифов по текущим фильтрам'
-                    : 'Выбрать тариф (фильтр по уровню/подписке)'}
-                </option>
-                {eligibleTariffs.map((t) => {
-                  const used = tariffSlotsUsed.get(t.id) || 0;
-                  const left = t.isLimited && t.capSlots != null ? Math.max(0, t.capSlots - used) : null;
-                  const rateLabel = `${(tariffRateMin(t) * 100).toFixed(2)}–${(tariffRateMax(t) * 100).toFixed(2)}%/d`;
-                  return (
-                    <option key={t.id} value={t.id} disabled={left !== null && left === 0}>
-                      {t.category === 'program' ? '[Программа] ' : ''}
-                      {t.name} — {rateLabel} × {t.durationDays}d{' '}
-                      {t.payoutMode === 'locked' ? '• заморозка' : ''}
-                      {left !== null ? ` • слотов: ${left}` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-              {eligibleTariffs.length === 0 && (
-                <span className="section-subtitle">
-                  Подберите другой фильтр или повысьте уровень/подписку, чтобы увидеть больше вариантов.
-                </span>
-              )}
+              <TariffPicker
+                categoryFilter={tariffCategoryFilter}
+                setCategoryFilter={setTariffCategoryFilter}
+                payoutFilter={tariffPayoutFilter}
+                setPayoutFilter={setTariffPayoutFilter}
+                search={tariffSearch}
+                setSearch={setTariffSearch}
+                eligibleTariffs={eligibleTariffs}
+                totalFiltered={filteredTariffs.length}
+                totalAll={sortedTariffs.length}
+                currency={currency}
+                onAdd={addTariff}
+                tariffSlotsUsed={tariffSlotsUsed}
+                insights={computed.programInsights}
+              />
 
               {portfolio.length === 0 && (
                 <p className="section-subtitle">Тарифы не добавлены. Выберите тариф выше.</p>
@@ -2489,6 +2481,30 @@ type RowPreviewProps = {
   insight?: ProgramInsight;
 };
 
+type TariffPickerProps = {
+  categoryFilter: 'all' | 'plan' | 'program';
+  setCategoryFilter: (value: 'all' | 'plan' | 'program') => void;
+  payoutFilter: 'all' | 'stream' | 'locked';
+  setPayoutFilter: (value: 'all' | 'stream' | 'locked') => void;
+  search: string;
+  setSearch: (value: string) => void;
+  eligibleTariffs: Tariff[];
+  totalFiltered: number;
+  totalAll: number;
+  currency: string;
+  onAdd: (tariffId: string) => void;
+  tariffSlotsUsed: Map<string, number>;
+  insights: Record<string, ProgramInsight>;
+};
+
+type TariffOptionCardProps = {
+  tariff: Tariff;
+  currency: string;
+  slotsUsed: number;
+  onAdd: () => void;
+  insight?: ProgramInsight;
+};
+
 function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: RowPreviewProps) {
   const chosenAcc = accountBoosters
     .map((id) => boosters.find((b) => b.id === id))
@@ -2677,6 +2693,175 @@ function RowPreview({ currency, rowData, boosters, accountBoosters, insight }: R
               )}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TariffPicker({
+  categoryFilter,
+  setCategoryFilter,
+  payoutFilter,
+  setPayoutFilter,
+  search,
+  setSearch,
+  eligibleTariffs,
+  totalFiltered,
+  totalAll,
+  currency,
+  onAdd,
+  tariffSlotsUsed,
+  insights
+}: TariffPickerProps) {
+  const filters = (
+    <div className="tariff-picker__filters">
+      <div className="tariff-picker__chips">
+        <span className="section-subtitle">Категория</span>
+        {(
+          [
+            ['all', 'Все'],
+            ['plan', 'Тарифы'],
+            ['program', 'Программы']
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={`chip ${categoryFilter === value ? 'chip--active' : ''}`}
+            onClick={() => setCategoryFilter(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="tariff-picker__chips">
+        <span className="section-subtitle">Выплаты</span>
+        {(
+          [
+            ['all', 'Любые'],
+            ['stream', 'Ежедневно'],
+            ['locked', 'В конце']
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={`chip ${payoutFilter === value ? 'chip--active' : ''}`}
+            onClick={() => setPayoutFilter(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="tariff-picker__search">
+        <input
+          type="search"
+          value={search}
+          placeholder="Поиск по названию или id"
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <span className="section-subtitle">
+          Найдено {eligibleTariffs.length} из {totalFiltered} (всего {totalAll})
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="tariff-picker">
+      {filters}
+      <div className="tariff-picker__results">
+        {eligibleTariffs.map((tariff) => {
+          const used = tariffSlotsUsed.get(tariff.id) || 0;
+          return (
+            <TariffOptionCard
+              key={tariff.id}
+              tariff={tariff}
+              currency={currency}
+              slotsUsed={used}
+              onAdd={() => onAdd(tariff.id)}
+              insight={insights[tariff.id]}
+            />
+          );
+        })}
+        {eligibleTariffs.length === 0 && (
+          <div className="tariff-picker__empty">
+            <p>По выбранным фильтрам сейчас нет доступных тарифов.</p>
+            <p className="section-subtitle">
+              Попробуйте изменить категорию, выплату или увеличить уровень/подписку.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TariffOptionCard({ tariff, currency, slotsUsed, onAdd, insight }: TariffOptionCardProps) {
+  const rateLabel = `${(tariffRateMin(tariff) * 100).toFixed(2)}–${(tariffRateMax(tariff) * 100).toFixed(2)}%/д`;
+  const payoutIcon = tariff.payoutMode === 'locked' ? '🔒' : '💸';
+  const typeIcon = tariff.category === 'program' ? '🎯' : '📈';
+  const left = tariff.isLimited && tariff.capSlots != null ? Math.max(0, tariff.capSlots - slotsUsed) : null;
+  const recommended = insight?.recommendedPrincipal ?? tariff.recommendedPrincipal;
+  const premiumInfo = insight?.premiumAtTarget ?? null;
+  const premiumTarget = insight?.requiredPremium ?? null;
+  const premiumMet = insight?.requirementMet ?? false;
+  const entryFee = tariff.entryFee ?? 0;
+  const metaBadges: string[] = [tariff.category === 'program' ? 'Программа' : 'Тариф'];
+  if (tariff.access === 'open') {
+    metaBadges.push('Открыто для всех уровней');
+  } else {
+    metaBadges.push(`Lv ≥ ${tariff.minLevel}`);
+  }
+  if (tariff.reqSub) {
+    metaBadges.push(`Подписка: ${tariff.reqSub}`);
+  }
+  if (left != null) {
+    metaBadges.push(`Свободно слотов: ${left}`);
+  }
+
+  return (
+    <div className="tariff-card">
+      <div className="tariff-card__header">
+        <div className="tariff-card__icon" aria-hidden="true">{typeIcon}</div>
+        <div className="tariff-card__title">
+          <strong>{tariff.name}</strong>
+          <span className="section-subtitle">
+            {rateLabel} • {tariff.durationDays} дн.
+          </span>
+        </div>
+        <button className="primary" type="button" onClick={onAdd}>
+          Добавить
+        </button>
+      </div>
+      <div className="tariff-card__meta">
+        <span>
+          {payoutIcon}{' '}
+          {tariff.payoutMode === 'locked' ? 'Начисления копятся и выплачиваются в конце' : 'Начисления поступают каждый день'}
+        </span>
+        <span>
+          Депозит {fmtMoney(tariff.baseMin, currency)} – {fmtMoney(tariff.baseMax, currency)}
+        </span>
+        {entryFee > 0 && <span>Вход программы {fmtMoney(entryFee, currency)}</span>}
+        {recommended != null && (
+          <span>Рекомендуемый депозит: {fmtMoney(recommended, currency)}</span>
+        )}
+      </div>
+      <div className="tariff-card__badges">
+        {metaBadges.map((badge) => (
+          <span key={badge} className="badge badge--ghost">
+            {badge}
+          </span>
+        ))}
+      </div>
+      {insight && (
+        <div
+          className="tariff-card__insight"
+          style={{ color: premiumMet ? '#166534' : '#b45309' }}
+        >
+          {premiumMet ? '✅' : '⚠️'} Премия к базовому предложению:{' '}
+          {fmtPercent(premiumInfo, 1)} (цель {fmtPercent(premiumTarget, 1)})
         </div>
       )}
     </div>
@@ -3251,7 +3436,7 @@ type SimulationPanelProps = {
 };
 
 type MmmModel = {
-  timeline: { day: number; reserve: number }[];
+  timeline: { day: number; reserve: number; inflow: number; outflow: number; momentum: number }[];
   collapseDay: number | null;
   reserveAfterFees: number;
   startReserve: number;
@@ -3265,6 +3450,8 @@ type MmmModel = {
   marketingSpend: number;
   newInvestorsTotal: number;
   avgDailyNewInvestors: number;
+  avgMomentum: number;
+  peakReserve: number;
   scenario: ScenarioProfile;
   truncated: boolean;
   abortReason: 'queue' | 'processing' | 'horizon' | null;
@@ -3280,7 +3467,11 @@ function SimulationPanel({
   programControls
 }: SimulationPanelProps) {
   const [scenarioBias, setScenarioBias] = useState(55);
-  const scenarioProfile = useMemo(() => blendScenario(scenarioBias), [scenarioBias]);
+  const deferredScenarioBias = useDeferredValue(scenarioBias);
+  const scenarioProfile = useMemo(
+    () => blendScenario(deferredScenarioBias),
+    [deferredScenarioBias]
+  );
 
   const addSegment = () => {
     setSegments([
@@ -3568,8 +3759,12 @@ function SimulationPanel({
       MMM_MAX_DAYS,
       Math.max(60, Math.round(maxDuration + maxRamp + 120))
     );
-    const timeline: { day: number; reserve: number }[] = [{ day: 0, reserve: 0 }];
+    const timeline: MmmModel['timeline'] = [
+      { day: 0, reserve: 0, inflow: 0, outflow: 0, momentum: 0 }
+    ];
     let reserve = 0;
+    let momentumSum = 0;
+    let peakReserve = 0;
     let collapseDay: number | null = null;
     let dailyOutflowFirst = 0;
     let totalDeposits = 0;
@@ -3583,6 +3778,12 @@ function SimulationPanel({
     let aborted = false;
     let abortReason: 'queue' | 'processing' | null = null;
     for (let day = 1; day <= horizon; day++) {
+      const momentum = computeMomentum(day, horizon, scenarioProfile);
+      const marketingScale = 1 + scenarioProfile.dailyAdBudgetGrowth * Math.log1p(day);
+      const churnModifier = Math.max(0, 1 - scenarioProfile.retentionBoost * momentum);
+      const churnRate = Math.max(0, scenarioProfile.churnProbability * churnModifier);
+      momentumSum += momentum;
+
       let dayProjectTake = 0;
       let dayOutflow = 0;
       let maturityOutflow = 0;
@@ -3596,24 +3797,32 @@ function SimulationPanel({
 
         if (remaining > 0) {
           if (day <= state.rampDays) {
-            const planned = state.investorsPerDay * scenarioProfile.acquisitionMultiplier;
+            const base = state.investorsPerDay * scenarioProfile.acquisitionMultiplier;
+            const planned = Math.max(
+              state.investorsPerDay * scenarioProfile.acquisitionFloor,
+              base * momentum
+            );
             newInvestors = day === state.rampDays ? remaining : Math.min(remaining, planned);
           } else {
-            const catchUp = Math.min(remaining, state.investorsPerDay);
+            const catchUp = Math.min(
+              remaining,
+              state.investorsPerDay * Math.max(momentum, scenarioProfile.acquisitionFloor)
+            );
             if (catchUp > 0) newInvestors += catchUp;
           }
         }
 
         const expansionBase = Math.max(state.activeInvestors, state.onboarded);
         if (expansionBase > 0 && scenarioProfile.expansionRate > 0) {
-          newInvestors += expansionBase * scenarioProfile.expansionRate;
+          newInvestors += expansionBase * scenarioProfile.expansionRate * momentum;
         }
 
         if (newInvestors > 0) {
           state.onboarded += newInvestors;
           state.activeInvestors += newInvestors;
           newInvestorsTotal += newInvestors;
-          const marketing = newInvestors * scenarioProfile.marketingCostPerInvestor;
+          const marketing =
+            newInvestors * scenarioProfile.marketingCostPerInvestor * marketingScale;
           if (marketing > 0) {
             dayMarketing += marketing;
           }
@@ -3627,7 +3836,7 @@ function SimulationPanel({
 
         const effectiveInvestors = Math.max(0, state.activeInvestors);
         if (effectiveInvestors > 0) {
-          const topUpMultiplier = Math.max(0, 1 + scenarioProfile.topUpGrowth);
+          const topUpMultiplier = Math.max(0, 1 + scenarioProfile.topUpGrowth * momentum);
           const topUp = state.segment.dailyTopUpPerInvestor * effectiveInvestors * topUpMultiplier;
           if (topUp > 0) {
             dayInflow += topUp;
@@ -3640,9 +3849,15 @@ function SimulationPanel({
           }
         }
 
-        if (state.activeInvestors > 0 && scenarioProfile.churnProbability > 0) {
-          const churned = state.activeInvestors * scenarioProfile.churnProbability;
-          state.activeInvestors = Math.max(0, state.activeInvestors - churned);
+        if (state.activeInvestors > 0 && churnRate > 0) {
+          const churned = state.activeInvestors * churnRate;
+          if (churned > 0) {
+            state.activeInvestors = Math.max(0, state.activeInvestors - churned);
+            const loss = churned * state.segment.dailyTopUpPerInvestor;
+            if (loss > 0) {
+              dayProjectTake -= loss;
+            }
+          }
         }
       });
 
@@ -3653,7 +3868,14 @@ function SimulationPanel({
 
       if (aborted) {
         collapseDay = day;
-        timeline.push({ day, reserve });
+        const provisionalOutflow = dayProjectTake + dayMarketing;
+        timeline.push({
+          day,
+          reserve,
+          inflow: dayInflow,
+          outflow: provisionalOutflow,
+          momentum
+        });
         break;
       }
 
@@ -3680,7 +3902,7 @@ function SimulationPanel({
             const maturedTotal = plan.principal + plan.maturityPayout;
             maturityOutflow += maturedTotal;
             if (scenarioProfile.reinvestShare > 0 && maturedTotal > 0) {
-              const reinvestAmount = maturedTotal * scenarioProfile.reinvestShare;
+              const reinvestAmount = maturedTotal * scenarioProfile.reinvestShare * momentum;
               const ownerState = stateMap.get(plan.segmentId);
               if (ownerState && reinvestAmount > 0 && ownerState.depositPerInvestor > 0) {
                 const investorEquivalent = reinvestAmount / ownerState.depositPerInvestor;
@@ -3707,7 +3929,15 @@ function SimulationPanel({
 
       if (aborted) {
         collapseDay = day;
-        timeline.push({ day, reserve });
+        const partialOutflow =
+          dayOutflow + maturityOutflow + dayProjectTake + dayMarketing;
+        timeline.push({
+          day,
+          reserve,
+          inflow: dayInflow,
+          outflow: partialOutflow,
+          momentum
+        });
         break;
       }
 
@@ -3719,7 +3949,15 @@ function SimulationPanel({
         dailyOutflowFirst = totalDayCost;
       }
 
-      timeline.push({ day, reserve });
+      peakReserve = Math.max(peakReserve, reserve);
+
+      timeline.push({
+        day,
+        reserve,
+        inflow: dayInflow,
+        outflow: totalDayCost,
+        momentum
+      });
 
       if (reserve <= 0) {
         collapseDay = day;
@@ -3727,13 +3965,21 @@ function SimulationPanel({
       }
     }
 
+    peakReserve = Math.max(peakReserve, reserve);
     if (collapseDay === null && timeline[timeline.length - 1].day < horizon) {
-      timeline.push({ day: horizon, reserve });
+      timeline.push({
+        day: horizon,
+        reserve,
+        inflow: 0,
+        outflow: 0,
+        momentum: computeMomentum(horizon, horizon, scenarioProfile)
+      });
     }
 
     const reserveAfterFees = Math.max(0, reserve);
     const daysSimulated = timeline[timeline.length - 1]?.day ?? horizon;
     const avgDailyNewInvestors = daysSimulated > 0 ? newInvestorsTotal / daysSimulated : 0;
+    const avgMomentum = daysSimulated > 0 ? momentumSum / daysSimulated : 0;
 
     const truncated = aborted || horizon >= MMM_MAX_DAYS;
     const finalReason = abortReason ?? (horizon >= MMM_MAX_DAYS ? 'horizon' : null);
@@ -3753,6 +3999,8 @@ function SimulationPanel({
       marketingSpend,
       newInvestorsTotal,
       avgDailyNewInvestors,
+      avgMomentum,
+      peakReserve,
       scenario: scenarioProfile,
       truncated,
       abortReason: finalReason
@@ -3811,6 +4059,21 @@ function SimulationPanel({
           <div>
             <span className="section-subtitle">Повторный депозит, % выплат</span>
             <strong>{Math.round(scenarioProfile.reinvestShare * 100)}%</strong>
+          </div>
+          <div>
+            <span className="section-subtitle">Базовый приток</span>
+            <strong>≥ {Math.round(scenarioProfile.acquisitionFloor * 100)}% плана</strong>
+          </div>
+          <div>
+            <span className="section-subtitle">Сезонность спроса</span>
+            <strong>{Math.round(scenarioProfile.seasonalityAmplitude * 100)}% ампл.</strong>
+          </div>
+          <div>
+            <span className="section-subtitle">Ретеншн</span>
+            <strong>
+              {scenarioProfile.retentionBoost >= 0 ? '+' : ''}
+              {Math.round(scenarioProfile.retentionBoost * 100)}%
+            </strong>
           </div>
         </div>
       </div>
@@ -3927,6 +4190,10 @@ function SimulationPanel({
           <p>{mmmModel ? mmmModel.avgDailyNewInvestors.toFixed(1) : '—'}</p>
         </div>
         <div className="sim-summary-card">
+          <h4>Средний импульс спроса</h4>
+          <p>{mmmModel ? `${mmmModel.avgMomentum.toFixed(2)}×` : '—'}</p>
+        </div>
+        <div className="sim-summary-card">
           <h4>Доход проекта (после маркетинга)</h4>
           <p>{mmmModel ? fmtMoney(mmmModel.netProjectTake, currency) : '—'}</p>
         </div>
@@ -3946,6 +4213,10 @@ function SimulationPanel({
         <div className="sim-summary-card">
           <h4>Резерв после комиссий</h4>
           <p>{mmmModel ? fmtMoney(mmmModel.reserveAfterFees, currency) : '—'}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Пиковый резерв</h4>
+          <p>{mmmModel ? fmtMoney(mmmModel.peakReserve, currency) : '—'}</p>
         </div>
       </div>
 
@@ -4272,7 +4543,9 @@ function MmmChart({ model, currency }: MmmChartProps) {
     newInvestorsTotal,
     scenario,
     dailyOutflowFirst,
-    totalTopUps
+    totalTopUps,
+    peakReserve,
+    avgMomentum
   } = model;
   if (!timeline || timeline.length < 2) return null;
 
@@ -4282,6 +4555,7 @@ function MmmChart({ model, currency }: MmmChartProps) {
     reserveAfterFees,
     ...timeline.map((pt) => (Number.isFinite(pt.reserve) ? pt.reserve : 0))
   );
+  const maxMomentum = Math.max(0.2, ...timeline.map((pt) => pt.momentum || 0));
   const lastDay = timeline[timeline.length - 1].day || 1;
   const points = timeline.map((pt, idx) => {
     const x = (idx / Math.max(1, timeline.length - 1)) * width;
@@ -4291,6 +4565,14 @@ function MmmChart({ model, currency }: MmmChartProps) {
   });
   const path = points.map((pt, idx) => `${idx === 0 ? 'M' : 'L'}${pt.x},${pt.y}`).join(' ');
   const area = `${path} L${width},${height} L0,${height} Z`;
+  const momentumPath = timeline
+    .map((pt, idx) => {
+      const x = (idx / Math.max(1, timeline.length - 1)) * width;
+      const val = Math.max(0, pt.momentum || 0);
+      const y = height - (maxMomentum > 0 ? (val / maxMomentum) * height : 0);
+      return `${idx === 0 ? 'M' : 'L'}${x},${y}`;
+    })
+    .join(' ');
   const collapseLabel = collapseDay != null
     ? `Резерв иссякнет через ≈ ${collapseDay} дн.`
     : 'Резерва хватает на горизонте модели';
@@ -4316,6 +4598,15 @@ function MmmChart({ model, currency }: MmmChartProps) {
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 220 }}>
         <path d={area} fill="rgba(37, 99, 235, 0.12)" />
         <path d={path} stroke="#2563eb" strokeWidth={3} fill="none" />
+        {momentumPath && (
+          <path
+            d={momentumPath}
+            stroke="#0ea5e9"
+            strokeWidth={2}
+            fill="none"
+            strokeDasharray="8 6"
+          />
+        )}
         {collapseDay != null && (
           <line
             x1={(collapseDay / lastDay) * width}
@@ -4327,6 +4618,10 @@ function MmmChart({ model, currency }: MmmChartProps) {
           />
         )}
       </svg>
+      <div className="section-subtitle" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <span style={{ color: '#2563eb' }}>— резерв</span>
+        <span style={{ color: '#0ea5e9' }}>⋯ импульс спроса</span>
+      </div>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         <div className="sim-summary-card">
           <h4>Стартовый резерв</h4>
@@ -4371,6 +4666,14 @@ function MmmChart({ model, currency }: MmmChartProps) {
         <div className="sim-summary-card">
           <h4>Новых инвесторов</h4>
           <p>{newInvestorsTotal.toFixed(0)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Пиковый резерв</h4>
+          <p>{fmtMoney(peakReserve, currency)}</p>
+        </div>
+        <div className="sim-summary-card">
+          <h4>Импульс спроса</h4>
+          <p>{`${avgMomentum.toFixed(2)}×`}</p>
         </div>
       </div>
     </div>
