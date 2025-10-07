@@ -245,8 +245,9 @@ type InvestorSegment = {
   dailyTopUpPerInvestor: number;
 };
 
-const DEFAULT_RATE_SPREAD = 0.08;
-const DEFAULT_RATE_COMPRESSION = 0.18;
+const DEFAULT_RATE_SPREAD = 0.06;
+const DEFAULT_RATE_COMPRESSION = 0.1;
+const RATE_BAND_MAX_DELTA = 0.0005;
 
 function createTariff(seed: TariffSeed): Tariff {
   const { rate, rateRange, rateTarget, bandTightness, ...rest } = seed;
@@ -255,8 +256,10 @@ function createTariff(seed: TariffSeed): Tariff {
   const baseMin = Math.min(minRateRaw, maxRateRaw);
   const baseMax = Math.max(minRateRaw, maxRateRaw);
   const target = rateTarget ?? rate;
-  const tighten = clamp(bandTightness ?? DEFAULT_RATE_COMPRESSION, 0.1, 1);
-  const halfWidth = ((baseMax - baseMin) * tighten) / 2;
+  const tighten = clamp(bandTightness ?? DEFAULT_RATE_COMPRESSION, 0.05, 1);
+  const rawWidth = (baseMax - baseMin) * tighten;
+  const width = rawWidth > 0 ? Math.min(rawWidth, RATE_BAND_MAX_DELTA) : 0;
+  const halfWidth = width / 2;
   const centre = clamp(target, baseMin, baseMax);
   const minRate = clamp(centre - halfWidth, baseMin, centre);
   const maxRate = clamp(centre + halfWidth, centre, baseMax);
@@ -432,9 +435,9 @@ const SCENARIO_BEST: ScenarioProfile = {
   retentionBoost: 0.28
 };
 
-const MMM_MAX_DAYS = 240;
-const MMM_MAX_QUEUE = 15000;
-const MMM_MAX_DAILY_PROCESSED = 5000;
+const MMM_MAX_DAYS = 180;
+const MMM_MAX_QUEUE = 8000;
+const MMM_MAX_DAILY_PROCESSED = 3000;
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
@@ -1581,7 +1584,7 @@ export default function ArbPlanBuilder() {
     setUserLevel(1);
   };
 
-  const addTariff = (tariffId: string) => {
+  const addTariff = (tariffId: string, deposit?: number) => {
     const t = tariffs.find((x) => x.id === tariffId);
     if (!t) return;
     if (!tariffAccessible(t, userLevel, activeSubId)) {
@@ -1594,7 +1597,9 @@ export default function ArbPlanBuilder() {
       return;
     }
     const id = uid(tariffId);
-    setPortfolio((prev) => [...prev, { id, tariffId, amount: t.baseMin }]);
+    const base = Number.isFinite(deposit) ? Number(deposit) : t.baseMin;
+    const amount = clamp(base, t.baseMin, t.baseMax);
+    setPortfolio((prev) => [...prev, { id, tariffId, amount }]);
   };
 
   const removeItem = (id: string) => {
@@ -1844,6 +1849,7 @@ export default function ArbPlanBuilder() {
                 totalFiltered={filteredTariffs.length}
                 totalAll={sortedTariffs.length}
                 currency={currency}
+                activeSub={activeSub}
                 onAdd={addTariff}
                 tariffSlotsUsed={tariffSlotsUsed}
                 insights={computed.programInsights}
@@ -2488,7 +2494,8 @@ type TariffPickerProps = {
   totalFiltered: number;
   totalAll: number;
   currency: string;
-  onAdd: (tariffId: string) => void;
+  activeSub: Subscription;
+  onAdd: (tariffId: string, amount?: number) => void;
   tariffSlotsUsed: Map<string, number>;
   insights: Record<string, ProgramInsight>;
 };
@@ -2707,11 +2714,13 @@ function TariffPicker({
   totalFiltered,
   totalAll,
   currency,
+  activeSub,
   onAdd,
   tariffSlotsUsed,
   insights
 }: TariffPickerProps) {
   const [selectedId, setSelectedId] = useState<string>('');
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
 
   useEffect(() => {
     if (selectedId && !eligibleTariffs.some((t) => t.id === selectedId)) {
@@ -2729,6 +2738,25 @@ function TariffPicker({
     selectedTariff && selectedTariff.isLimited && selectedTariff.capSlots != null
       ? Math.max(0, selectedTariff.capSlots - selectedSlotsUsed)
       : null;
+
+  useEffect(() => {
+    if (!selectedTariff) {
+      setSelectedAmount(null);
+      return;
+    }
+    const anchor =
+      selectedInsight?.targetDeposit ??
+      selectedInsight?.recommendedPrincipal ??
+      selectedInsight?.breakevenAmount ??
+      selectedTariff.recommendedPrincipal ??
+      selectedTariff.baseMin;
+    const seed = Number.isFinite(anchor) ? (anchor as number) : selectedTariff.baseMin;
+    setSelectedAmount(clamp(seed, selectedTariff.baseMin, selectedTariff.baseMax));
+  }, [selectedTariff, selectedInsight]);
+
+  const sanitizedAmount = selectedTariff
+    ? clamp(selectedAmount ?? selectedTariff.baseMin, selectedTariff.baseMin, selectedTariff.baseMax)
+    : null;
 
   const filters = (
     <div className="tariff-picker__filters">
@@ -2786,7 +2814,9 @@ function TariffPicker({
 
   const handleAdd = () => {
     if (!selectedTariff) return;
-    onAdd(selectedTariff.id);
+    onAdd(selectedTariff.id, sanitizedAmount ?? undefined);
+    setSelectedId('');
+    setSelectedAmount(null);
   };
 
   const optionLabel = (tariff: Tariff) => {
@@ -2796,7 +2826,11 @@ function TariffPicker({
   };
 
   const addDisabled =
-    !selectedTariff || (selectedSlotsLeft != null ? selectedSlotsLeft === 0 : false);
+    !selectedTariff ||
+    (selectedSlotsLeft != null ? selectedSlotsLeft === 0 : false) ||
+    sanitizedAmount == null ||
+    !Number.isFinite(sanitizedAmount) ||
+    sanitizedAmount <= 0;
 
   return (
     <div className="tariff-picker">
@@ -2813,6 +2847,25 @@ function TariffPicker({
             ))}
           </select>
         </label>
+        {selectedTariff && (
+          <label className="field" style={{ flex: '0 0 220px' }}>
+            <span className="field-label">Депозит при добавлении</span>
+            <input
+              type="number"
+              min={selectedTariff.baseMin}
+              max={selectedTariff.baseMax}
+              step={Math.max(1, Math.round(selectedTariff.baseMin / 10) || 1)}
+              value={selectedAmount ?? ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedAmount(value === '' ? null : Number(value));
+              }}
+            />
+            <span className="field-hint">
+              Допустимо {fmtMoney(selectedTariff.baseMin, currency)} – {fmtMoney(selectedTariff.baseMax, currency)}
+            </span>
+          </label>
+        )}
         <div className="tariff-picker__selector-actions">
           <button className="primary" type="button" onClick={handleAdd} disabled={addDisabled}>
             Добавить тариф
@@ -2839,6 +2892,8 @@ function TariffPicker({
           tariff={selectedTariff}
           currency={currency}
           slotsUsed={selectedSlotsUsed}
+          activeSub={activeSub}
+          amount={sanitizedAmount}
           insight={selectedInsight}
         />
       ) : eligibleTariffs.length > 0 ? (
@@ -2854,18 +2909,50 @@ type TariffQuickPreviewProps = {
   tariff: Tariff;
   currency: string;
   slotsUsed: number;
+  activeSub: Subscription;
+  amount: number | null;
   insight?: ProgramInsight;
 };
 
-function TariffQuickPreview({ tariff, currency, slotsUsed, insight }: TariffQuickPreviewProps) {
-  const rateRange = `${(tariffRateMin(tariff) * 100).toFixed(2)}–${(tariffRateMax(tariff) * 100).toFixed(2)}%/д`;
+function TariffQuickPreview({
+  tariff,
+  currency,
+  slotsUsed,
+  activeSub,
+  amount,
+  insight
+}: TariffQuickPreviewProps) {
+  const rateMin = tariffRateMin(tariff);
+  const rateMax = tariffRateMax(tariff);
+  const rateTarget = tariff.dailyRateTarget;
+  const rateRange = `${(rateMin * 100).toFixed(2)}–${(rateMax * 100).toFixed(2)}%/д`;
   const left = tariff.isLimited && tariff.capSlots != null ? Math.max(0, tariff.capSlots - slotsUsed) : null;
-  const recommended = insight?.recommendedPrincipal ?? tariff.recommendedPrincipal;
-  const premiumAtTarget = insight?.premiumAtTarget ?? null;
+  const recommended = insight?.recommendedPrincipal ?? tariff.recommendedPrincipal ?? null;
   const premiumRequirement = insight?.requiredPremium ?? null;
   const entryFee = tariff.entryFee ?? 0;
   const payoutLabel = tariff.payoutMode === 'locked' ? 'Начисление в конце срока' : 'Начисление ежедневно';
   const competitor = insight?.competitor ?? null;
+  const deposit = clamp(amount ?? recommended ?? tariff.baseMin, tariff.baseMin, tariff.baseMax);
+  const feeRate = activeSub.fee;
+  const duration = tariff.durationDays;
+  const grossTarget = deposit * rateTarget * duration;
+  const grossMin = deposit * rateMin * duration;
+  const grossMax = deposit * rateMax * duration;
+  const netTarget = grossTarget * (1 - feeRate) - entryFee;
+  const netMin = grossMin * (1 - feeRate) - entryFee;
+  const netMax = grossMax * (1 - feeRate) - entryFee;
+  const dailyFlowTarget = tariff.payoutMode === 'stream' ? deposit * rateTarget * (1 - feeRate) : 0;
+  const paybackDays =
+    entryFee > 0 && dailyFlowTarget > 0 ? Math.ceil(entryFee / dailyFlowTarget) : null;
+  const premiumAtAmount =
+    insight && deposit > 0 ? insight.baseReturn - insight.competitorReturn - entryFee / deposit : null;
+  const premiumDisplay =
+    premiumAtAmount != null
+      ? fmtPercent(premiumAtAmount, 1)
+      : insight?.premiumAtTarget != null
+      ? fmtPercent(insight.premiumAtTarget, 1)
+      : '—';
+  const belowRecommendation = recommended != null && deposit < recommended;
 
   return (
     <div className="tariff-preview">
@@ -2895,28 +2982,51 @@ function TariffQuickPreview({ tariff, currency, slotsUsed, insight }: TariffQuic
         <div>
           <span className="field-label">Диапазон доходности</span>
           <strong>{rateRange}</strong>
-          <span className="muted">Цель {(tariff.dailyRateTarget * 100).toFixed(2)}%/д</span>
+          <span className="muted">Цель {(rateTarget * 100).toFixed(2)}%/д</span>
         </div>
         <div>
           <span className="field-label">Срок программы</span>
-          <strong>{tariff.durationDays} дней</strong>
+          <strong>{duration} дней</strong>
           <span className="muted">
             Депозит: {fmtMoney(tariff.baseMin, currency)} – {fmtMoney(tariff.baseMax, currency)}
           </span>
         </div>
         <div>
-          <span className="field-label">Рекомендация по депозиту</span>
+          <span className="field-label">Выбранный депозит</span>
+          <strong>{fmtMoney(deposit, currency)}</strong>
+          {belowRecommendation && <span className="muted warn">Меньше рекомендации</span>}
+        </div>
+        <div>
+          <span className="field-label">Рекомендация</span>
           <strong>{recommended ? fmtMoney(recommended, currency) : '—'}</strong>
           {premiumRequirement != null && (
             <span className="muted">Нужна премия ≥ {fmtPercent(premiumRequirement, 1)}</span>
           )}
         </div>
         <div>
+          <span className="field-label">Чистая выплата за цикл</span>
+          <strong>{fmtMoney(netTarget, currency)}</strong>
+          <span className="muted">Мин–макс: {fmtMoney(netMin, currency)} – {fmtMoney(netMax, currency)}</span>
+        </div>
+        <div>
+          <span className="field-label">Поток в день</span>
+          <strong>{fmtMoney(dailyFlowTarget, currency)}</strong>
+          <span className="muted">
+            {tariff.payoutMode === 'locked' ? 'Капает в замороженный баланс' : 'После комиссии подписки'}
+          </span>
+        </div>
+        <div>
           <span className="field-label">Премия к бесплатным</span>
-          <strong>{premiumAtTarget != null ? fmtPercent(premiumAtTarget, 1) : '—'}</strong>
-          {competitor && (
-            <span className="muted">Сравнение с {competitor.name}</span>
-          )}
+          <strong>{premiumDisplay}</strong>
+          {competitor && <span className="muted">Сравнение с {competitor.name}</span>}
+        </div>
+        <div>
+          <span className="field-label">Входной взнос</span>
+          <strong>{entryFee > 0 ? fmtMoney(entryFee, currency) : 'Нет'}</strong>
+          <span className="muted">
+            Безубыточность {insight?.breakevenAmount ? fmtMoney(insight.breakevenAmount, currency) : '—'}
+            {paybackDays != null ? ` • ≈ ${paybackDays} дн.` : ''}
+          </span>
         </div>
       </div>
     </div>
@@ -3427,6 +3537,11 @@ function SimulationPanel({
     () => blendScenario(deferredScenarioBias),
     [deferredScenarioBias]
   );
+  const scenarioPresets = [
+    { label: 'Кризис', value: 15 },
+    { label: 'Базовый', value: 55 },
+    { label: 'Рост', value: 85 }
+  ];
 
   const addSegment = () => {
     setSegments([
@@ -3550,6 +3665,8 @@ function SimulationPanel({
     });
   }, [segments, tariffs, boosters, pricing, programControls, scenarioProfile.optimism]);
 
+  const deferredSegments = useDeferredValue(segmentSummaries);
+
   const totals = useMemo(() => {
     let investorsTotal = 0;
     let depositTotal = 0;
@@ -3579,7 +3696,7 @@ function SimulationPanel({
     let unlockedNetPerDayTotal = 0;
     let topUpPerDayTotal = 0;
 
-    segmentSummaries.forEach(({ segment, computed, depositPerInvestor }) => {
+    deferredSegments.forEach(({ segment, computed, depositPerInvestor }) => {
       investorsTotal += segment.investors;
       depositTotal += depositPerInvestor * segment.investors;
       investorNetTotal += computed.totals.investorNet * segment.investors;
@@ -3639,7 +3756,7 @@ function SimulationPanel({
       unlockedNetPerDayTotal,
       topUpPerDayTotal
     };
-  }, [segmentSummaries]);
+  }, [deferredSegments]);
 
   const boosterRoiTotal = totals.boosterEscrowTotal > 0 ? totals.boosterLiftTotal / totals.boosterEscrowTotal : 0;
   const netPerActiveHourBeforeCostTotal = totals.boosterActiveHoursTotal > 0
@@ -3650,7 +3767,7 @@ function SimulationPanel({
     : null;
 
   const mmmModel = useMemo<MmmModel | null>(() => {
-    if (segmentSummaries.length === 0) return null;
+    if (deferredSegments.length === 0) return null;
 
     type PlanInstance = {
       segmentId: string;
@@ -3661,7 +3778,7 @@ function SimulationPanel({
     };
 
     const planQueue: PlanInstance[] = [];
-    const segmentStates = segmentSummaries.map(({ segment, computed, depositPerInvestor, planRows }) => {
+    const segmentStates = deferredSegments.map(({ segment, computed, depositPerInvestor, planRows }) => {
       const baseRamp = Math.max(1, segment.rampDays || 1);
       const rampDays = Math.max(1, Math.round(baseRamp * scenarioProfile.rampCompression));
       const investorsPerDay = rampDays > 0 ? segment.investors / rampDays : segment.investors;
@@ -3702,7 +3819,7 @@ function SimulationPanel({
 
     let maxDuration = 0;
     let maxRamp = 0;
-    segmentSummaries.forEach(({ segment, planRows }) => {
+    deferredSegments.forEach(({ segment, planRows }) => {
       const rampDays = Math.max(1, Math.round((segment.rampDays || 1) * scenarioProfile.rampCompression));
       maxRamp = Math.max(maxRamp, rampDays);
       planRows.forEach((row) => {
@@ -3960,7 +4077,7 @@ function SimulationPanel({
       truncated,
       abortReason: finalReason
     };
-  }, [segmentSummaries, scenarioProfile]);
+  }, [deferredSegments, scenarioProfile]);
 
   return (
     <div className="card" style={{ display: 'grid', gap: 20 }}>
@@ -3997,6 +4114,18 @@ function SimulationPanel({
           <span role="img" aria-label="best">
             🚀
           </span>
+        </div>
+        <div className="scenario-presets">
+          {scenarioPresets.map((preset) => (
+            <button
+              key={preset.value}
+              type="button"
+              className={`chip ${scenarioBias === preset.value ? 'chip--active' : ''}`}
+              onClick={() => setScenarioBias(preset.value)}
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
         <div className="scenario-meta">
           <div>
@@ -4181,7 +4310,7 @@ function SimulationPanel({
       )}
 
       <div className="grid" style={{ gap: 16 }}>
-        {segmentSummaries.map(({ segment, sub, availableBoosters, chosenBoosterIds, computed, depositPerInvestor }) => {
+        {deferredSegments.map(({ segment, sub, availableBoosters, chosenBoosterIds, computed, depositPerInvestor }) => {
           const eligibleTariffs = [...tariffs]
             .filter((t) => tariffAccessible(t, segment.userLevel, segment.subscriptionId))
             .sort(sortTariffs);
