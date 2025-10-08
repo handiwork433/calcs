@@ -1174,16 +1174,16 @@ function runSelfTests() {
   console.assert(Math.abs(boosterCoverageMultiplier(0.5, 2) - 1.5) < 1e-9, 'coverage clamps to 1');
 
   const tenDaysHours = 10 * 24;
-  const cov = Math.min(24, tenDaysHours) / tenDaysHours;
-  const mult = 1 + 1 * cov;
+  const covTenDay = Math.min(24, tenDaysHours) / tenDaysHours;
+  const mult = 1 + 1 * covTenDay;
   console.assert(Math.abs(mult - 1.1) < 1e-9, '+100% x24h on 10d plan should be ×1.1');
 
   const fee = 0.2,
     rate = 0.01,
     days = 10,
     value = 1.0;
-  const price = 100 * rate * days * value * cov * (1 - fee);
-  const denom = rate * days * value * cov * (1 - fee);
+  const price = 100 * rate * days * value * covTenDay * (1 - fee);
+  const denom = rate * days * value * covTenDay * (1 - fee);
   const beAmount = denom > 0 ? price / denom : Infinity;
   console.assert(Math.abs(beAmount - 100) < 1e-9, 'breakeven amount should round-trip');
 
@@ -1214,8 +1214,8 @@ function runSelfTests() {
 
   const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
   const weeklyHours = weekly.durationDays * 24;
-  const cov = Math.min(24, weeklyHours) / weeklyHours;
-  const grossGainSmall = 100 * tariffRate(weekly) * weekly.durationDays * cov;
+  const covWeekly = Math.min(24, weeklyHours) / weeklyHours;
+  const grossGainSmall = 100 * tariffRate(weekly) * weekly.durationDays * covWeekly;
   const netGainSmall = grossGainSmall * (1 - elite.fee);
   const minBonusShare = DEFAULT_PRICING.investorRoiFloorPct / 100;
   const netAfterPrice = netGainSmall - pricedSmall;
