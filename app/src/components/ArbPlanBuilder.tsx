@@ -209,6 +209,8 @@ type PricingControls = {
   minPrice: number;
   maxPrice: number;
   anchorDeposit: number;
+  depositGainMultiplier: number;
+  profitGainMultiplier: number;
 };
 
 type ProgramDesignControls = {
@@ -521,7 +523,9 @@ const DEFAULT_PRICING: PricingControls = {
   investorBonusPct: 20,
   minPrice: 0.5,
   maxPrice: 1_000_000,
-  anchorDeposit: 150
+  anchorDeposit: 150,
+  depositGainMultiplier: 1.2,
+  profitGainMultiplier: 1
 };
 
 const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
@@ -599,6 +603,20 @@ function normalizePricingControls(raw?: any): PricingControls {
   const minPriceRaw = Number(raw.minPrice ?? fallback.minPrice);
   const maxPriceRaw = Number(raw.maxPrice ?? fallback.maxPrice);
   const anchorRaw = Number(raw.anchorDeposit ?? raw.baselinePrincipal ?? fallback.anchorDeposit);
+  const depositGainRaw = Number(
+    raw.depositGainMultiplier ??
+      raw.depositGain ??
+      raw.depositLift ??
+      raw.depositCapture ??
+      fallback.depositGainMultiplier
+  );
+  const profitGainRaw = Number(
+    raw.profitGainMultiplier ??
+      raw.profitGain ??
+      raw.profitLift ??
+      raw.rateGain ??
+      fallback.profitGainMultiplier
+  );
   const pivotRaw = Number(
     raw.capturePivotNet ?? raw.capturePivot ?? raw.netPivot ?? fallback.capturePivotNet
   );
@@ -624,6 +642,12 @@ function normalizePricingControls(raw?: any): PricingControls {
   const capturePivotNet = Number.isFinite(pivotRaw)
     ? Math.max(1, pivotRaw)
     : Math.max(1, fallback.capturePivotNet);
+  const depositGainMultiplier = Number.isFinite(depositGainRaw)
+    ? Math.max(0, depositGainRaw)
+    : fallback.depositGainMultiplier;
+  const profitGainMultiplier = Number.isFinite(profitGainRaw)
+    ? Math.max(0, profitGainRaw)
+    : fallback.profitGainMultiplier;
 
   return {
     captureShareFloorPct,
@@ -632,7 +656,9 @@ function normalizePricingControls(raw?: any): PricingControls {
     investorBonusPct,
     minPrice,
     maxPrice: maxPriceBase,
-    anchorDeposit
+    anchorDeposit,
+    depositGainMultiplier,
+    profitGainMultiplier
   };
 }
 
@@ -684,15 +710,26 @@ function boosterActiveDays(booster: Booster, tariff: Tariff) {
   return hours > 0 ? hours / 24 : 0;
 }
 
-function boosterBonusNet(amount: number, booster: Booster, tariff: Tariff) {
+function boosterBonusNet(
+  amount: number,
+  booster: Booster,
+  tariff: Tariff,
+  feeRate = 0,
+  controls: PricingControls = DEFAULT_PRICING
+) {
   const principal = Math.max(0, amount);
   if (!(principal > 0)) return 0;
   const effectShare = boosterEffectShare(booster);
   if (!(effectShare > 0)) return 0;
   const activeDays = boosterActiveDays(booster, tariff);
   if (!(activeDays > 0)) return 0;
-  const grossBonus = principal * effectShare * activeDays;
-  return Math.max(0, grossBonus);
+  const safeFee = clamp(feeRate, 0, 1);
+  const depositLift = principal * effectShare * activeDays * Math.max(0, controls.depositGainMultiplier);
+  const rateBase = principal * tariffRate(tariff) * activeDays;
+  const profitLift = rateBase * effectShare * Math.max(0, controls.profitGainMultiplier);
+  const grossBonus = depositLift + profitLift;
+  const fee = grossBonus * safeFee;
+  return Math.max(0, grossBonus - fee);
 }
 
 function computeBoosterPriceFromNet(netGain: number, controls: PricingControls) {
@@ -744,7 +781,7 @@ function smartPriceBoostersDyn(
 
   const netGainFor = (booster: Booster, amount: number, tariff: Tariff) => {
     if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) return 0;
-    return boosterBonusNet(amount, booster, tariff);
+    return boosterBonusNet(amount, booster, tariff, sub.fee, pricing);
   };
 
   const portfolioNetGain = (booster: Booster) => {
@@ -888,6 +925,7 @@ type ComputeOptions = {
   activeSubId: string;
   userLevel: number;
   programControls: ProgramDesignControls;
+  pricing: PricingControls;
   optimism?: number;
 };
 
@@ -899,6 +937,7 @@ function computePortfolioState({
   activeSubId,
   userLevel,
   programControls,
+  pricing,
   optimism
 }: ComputeOptions): ComputedState {
   const activeSub = SUBSCRIPTIONS.find((s) => s.id === activeSubId) ?? SUBSCRIPTIONS[0];
@@ -938,7 +977,7 @@ function computePortfolioState({
         if (effectShare <= 0) continue;
         const activeHours = boosterActiveHours(b, t);
         const activeDays = activeHours / 24;
-        const gainNet = boosterBonusNet(amount, b, t);
+        const gainNet = boosterBonusNet(amount, b, t, feeRate, pricing);
         if (gainNet > 0) {
           boosterNetGain.set(b.id, (boosterNetGain.get(b.id) || 0) + gainNet);
           boosterNetById[b.id] = (boosterNetById[b.id] || 0) + gainNet;
@@ -1332,7 +1371,7 @@ function runSelfTests() {
   console.assert(pricedBig > pricedSmall, 'dynamic price should grow with portfolio');
 
   const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
-  const boosterNet = boosterBonusNet(100, testBooster[0], weekly);
+  const boosterNet = boosterBonusNet(100, testBooster[0], weekly, elite.fee, DEFAULT_PRICING);
   const minBonusShare = DEFAULT_PRICING.investorBonusPct / 100;
   const pricingNet = boosterNet;
   const captureShare = captureShareForNet(pricingNet, DEFAULT_PRICING);
@@ -1429,7 +1468,8 @@ function runSelfTests() {
     tariffs: [programNormalized],
     activeSubId: 'free',
     userLevel: 5,
-    programControls: DEFAULT_PROGRAM_CONTROLS
+    programControls: DEFAULT_PROGRAM_CONTROLS,
+    pricing: DEFAULT_PRICING
   });
   console.assert(programState.rows[0].programFee === 20, 'program fee should be tracked on row');
   console.assert(programState.totals.programFees === 20, 'program fee should hit totals');
@@ -1485,7 +1525,8 @@ function runSelfTests() {
     tariffs: [lockedTariff],
     activeSubId: 'free',
     userLevel: 5,
-    programControls: DEFAULT_PROGRAM_CONTROLS
+    programControls: DEFAULT_PROGRAM_CONTROLS,
+    pricing: DEFAULT_PRICING
   });
   const lockedRow = lockedState.rows[0];
   console.assert(lockedRow.lockedNet > 0, 'locked plan should accumulate deferred payout');
@@ -1502,7 +1543,8 @@ function runSelfTests() {
     tariffs: INIT_TARIFFS,
     activeSubId: 'free',
     userLevel: 5,
-    programControls: DEFAULT_PROGRAM_CONTROLS
+    programControls: DEFAULT_PROGRAM_CONTROLS,
+    pricing: DEFAULT_PRICING
   });
   console.assert(
     rangeState.totals.investorNetMin <= rangeState.totals.investorNetMax + 1e-6,
@@ -1528,12 +1570,14 @@ function evaluateBoosterAgainstPortfolio({
   booster,
   portfolio,
   tariffs,
-  sub
+  sub,
+  pricing
 }: {
   booster: Booster;
   portfolio: PortfolioItem[];
   tariffs: Tariff[];
   sub: Subscription;
+  pricing: PricingControls;
 }): BoosterImpact {
   const totalCapital = portfolio.reduce((sum, item) => sum + Math.max(0, Number(item.amount) || 0), 0);
   let netGain = 0;
@@ -1562,7 +1606,7 @@ function evaluateBoosterAgainstPortfolio({
     if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
 
     const amount = Math.max(0, Number(item.amount) || 0);
-    const gain = boosterBonusNet(amount, booster, tariff);
+    const gain = boosterBonusNet(amount, booster, tariff, sub.fee, pricing);
     if (gain <= 0) continue;
 
     netGain += gain;
@@ -1705,10 +1749,11 @@ export default function ArbPlanBuilder() {
         booster,
         portfolio,
         tariffs,
-        sub: activeSub
+        sub: activeSub,
+        pricing: pricingControls
       })
     );
-  }, [availableAccountBoosters, portfolio, tariffs, activeSub]);
+  }, [availableAccountBoosters, portfolio, tariffs, activeSub, pricingControls]);
 
   const boosterImpactMap = useMemo(() => {
     return new Map(boosterInsights.map((impact) => [impact.booster.id, impact]));
@@ -1731,9 +1776,19 @@ export default function ArbPlanBuilder() {
         tariffs,
         activeSubId,
         userLevel,
-        programControls
+        programControls,
+        pricing: pricingControls
       }),
-    [portfolio, boosters, accountBoosters, tariffs, activeSubId, userLevel, programControls]
+    [
+      portfolio,
+      boosters,
+      accountBoosters,
+      tariffs,
+      activeSubId,
+      userLevel,
+      programControls,
+      pricingControls
+    ]
   );
 
   const rowMap = useMemo(() => {
@@ -3341,8 +3396,14 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   const previewControls = normalizePricingControls(draft);
   const sampleDeposit = Math.max(1, previewControls.anchorDeposit || DEFAULT_PRICING.anchorDeposit);
   const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
-  const sampleBaseNet = Math.max(1, sampleDeposit * 0.04);
-  const sampleNet = sampleBaseNet * (1 + bonusShare);
+  const sampleEffect = 0.1;
+  const sampleRate = 0.006;
+  const sampleActiveDays = 1;
+  const sampleDepositLift =
+    sampleDeposit * sampleEffect * sampleActiveDays * Math.max(0, previewControls.depositGainMultiplier);
+  const sampleProfitLift =
+    sampleDeposit * sampleRate * sampleActiveDays * sampleEffect * Math.max(0, previewControls.profitGainMultiplier);
+  const sampleNet = Math.max(0.01, sampleDepositLift + sampleProfitLift);
   const captureShareFloor = Math.max(0, previewControls.captureShareFloorPct / 100);
   const captureShareCeil = Math.max(captureShareFloor, previewControls.captureShareCeilPct / 100);
   const captureShare = Math.max(0, captureShareForNet(sampleNet, previewControls));
@@ -3407,6 +3468,28 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
           </span>
         </label>
         <label className="field">
+          <span className="field-label">Множитель бонуса от депозита</span>
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            value={draft.depositGainMultiplier}
+            onChange={(e) => update('depositGainMultiplier', Number(e.target.value))}
+          />
+          <span className="field-hint">Во сколько раз бустер умножает «процент от депозита» при расчёте выгоды.</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Множитель бонуса от доходности тарифа</span>
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            value={draft.profitGainMultiplier}
+            onChange={(e) => update('profitGainMultiplier', Number(e.target.value))}
+          />
+          <span className="field-hint">Дополнительный вес, который получают высокодоходные тарифы при расчёте цены.</span>
+        </label>
+        <label className="field">
           <span className="field-label">Минимальная цена бустера</span>
           <input
             type="number"
@@ -3434,9 +3517,10 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
           {fmtMoney(guaranteedBonusValue, 'USD')} ({fmtPercent(bonusShare, 0)}) поверх возврата стоимости бустера.
         </p>
         <p className="section-subtitle">
-          Базовая формула: <code>чистая&nbsp;прибыль × доля&nbsp;захвата</code>. Доля скользит от значения для новичка к максимуму
-          по мере роста прибыли. Далее цена ограничивается ROI (делением на <code>1 + бонус</code>), минимальной и максимальной
-          планкой — но только если это не лишает инвестора гарантированного дохода.
+          Базовая формула: <code>(депозитный&nbsp;бонус + доходный&nbsp;бонус) × доля&nbsp;захвата</code>. Первый слагаемый задаёт
+          гарантированный процент от депозита (управляется множителем выше), второй усиливает тарифы с высокой доходностью.
+          Доля захвата плавно растёт от значения для новичков к максимуму. Цена ограничивается ROI (делением на
+          <code>1 + бонус</code>) и заданными минимумом/максимумом, чтобы инвестор всегда получал оговорённый бонус.
         </p>
       </div>
 
@@ -4063,6 +4147,7 @@ function SimulationPanel({
         activeSubId: segment.subscriptionId,
         userLevel: segment.userLevel,
         programControls,
+        pricing,
         optimism: scenarioProfile.optimism
       });
       const depositPerInvestor = segment.portfolio.reduce((sum, item) => sum + item.amount, 0);
