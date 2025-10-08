@@ -202,6 +202,7 @@ type BoosterImpact = {
 };
 
 type PricingControls = {
+  captureSharePct: number;
   investorBonusPct: number;
   minPrice: number;
   maxPrice: number;
@@ -512,6 +513,7 @@ function computeMomentum(day: number, horizon: number, profile: ScenarioProfile)
 }
 
 const DEFAULT_PRICING: PricingControls = {
+  captureSharePct: 30,
   investorBonusPct: 20,
   minPrice: 0.5,
   maxPrice: 1_000_000,
@@ -572,6 +574,9 @@ function normalizePricingControls(raw?: any): PricingControls {
   const fallback = DEFAULT_PRICING;
   if (!raw || typeof raw !== 'object') return fallback;
 
+  const captureRaw = Number(
+    raw.captureSharePct ?? raw.captureShare ?? raw.projectSharePct ?? fallback.captureSharePct
+  );
   const bonusRaw = Number(
     raw.investorBonusPct ?? raw.investorRoiFloorPct ?? fallback.investorBonusPct
   );
@@ -579,12 +584,16 @@ function normalizePricingControls(raw?: any): PricingControls {
   const maxPriceRaw = Number(raw.maxPrice ?? fallback.maxPrice);
   const anchorRaw = Number(raw.anchorDeposit ?? raw.baselinePrincipal ?? fallback.anchorDeposit);
 
+  const captureSharePct = Number.isFinite(captureRaw)
+    ? clamp(captureRaw, 0, 100)
+    : fallback.captureSharePct;
   const investorBonusPct = Number.isFinite(bonusRaw) ? Math.max(0, bonusRaw) : fallback.investorBonusPct;
   const minPrice = Number.isFinite(minPriceRaw) ? Math.max(0, minPriceRaw) : fallback.minPrice;
   const maxPriceBase = Number.isFinite(maxPriceRaw) ? Math.max(minPrice, maxPriceRaw) : fallback.maxPrice;
   const anchorDeposit = Number.isFinite(anchorRaw) ? Math.max(0, anchorRaw) : fallback.anchorDeposit;
 
   return {
+    captureSharePct,
     investorBonusPct,
     minPrice,
     maxPrice: maxPriceBase,
@@ -620,19 +629,35 @@ function programNetGain(amount: number, tariff: Tariff, feeRate: number) {
 
 function computeBoosterPriceFromNet(netGain: number, controls: PricingControls) {
   if (!(netGain > 0)) return 0;
+  const captureShare = Math.max(0, controls.captureSharePct / 100);
   const investorBonusShare = Math.max(0, controls.investorBonusPct / 100);
   const minPrice = Math.max(0, controls.minPrice);
   const maxPrice = Math.max(minPrice, controls.maxPrice);
 
-  const divisor = 1 + investorBonusShare;
-  const roiBound = divisor > 0 ? netGain / divisor : netGain;
-  if (!Number.isFinite(roiBound) || roiBound <= 0) return 0;
+  const sharePrice = captureShare > 0 ? netGain * captureShare : netGain;
+  const roiCap = investorBonusShare > 0 ? netGain / (1 + investorBonusShare) : netGain;
 
-  const capped = Math.min(roiBound, maxPrice);
-  if (roiBound >= minPrice) {
-    return Math.max(minPrice, capped);
+  let candidate = Math.min(sharePrice, roiCap, netGain);
+  if (!Number.isFinite(candidate) || !(candidate > 0)) return 0;
+
+  let price = Math.min(candidate, maxPrice);
+
+  if (price < minPrice) {
+    const feasibleFloor = Math.min(roiCap, netGain);
+    if (minPrice <= feasibleFloor && minPrice <= maxPrice) {
+      price = minPrice;
+    }
   }
-  return Math.max(0, capped);
+
+  if (investorBonusShare > 0) {
+    const investorTake = netGain - price;
+    const required = price * investorBonusShare;
+    if (investorTake + 1e-9 < required) {
+      price = Math.min(price, roiCap);
+    }
+  }
+
+  return Math.max(0, Number.isFinite(price) ? price : 0);
 }
 
 function smartPriceBoostersDyn(
@@ -647,8 +672,6 @@ function smartPriceBoostersDyn(
   if (eligibleTs.length === 0) return boosterList;
 
   const sortedByMin = [...eligibleTs].sort((a, b) => a.baseMin - b.baseMin);
-  const lowT = sortedByMin.slice(0, 3);
-
   const anchorDeposit = Math.max(0, pricing.anchorDeposit || 0);
 
   const coverageShare = (booster: Booster, tariff: Tariff) => {
@@ -679,23 +702,24 @@ function smartPriceBoostersDyn(
     return sum;
   };
 
-  const baselineNetGain = (booster: Booster) => {
-    let sum = 0;
-    for (const tariff of lowT) {
+  const fallbackNetGain = (booster: Booster) => {
+    if (!(anchorDeposit > 0)) return 0;
+    for (const tariff of sortedByMin) {
       if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
-      const principal = Math.max(tariff.baseMin, anchorDeposit, tariff.recommendedPrincipal ?? 0);
-      sum += netGainFor(booster, principal, tariff);
+      const principal = Math.max(anchorDeposit, tariff.baseMin, tariff.recommendedPrincipal ?? 0);
+      const gain = netGainFor(booster, principal, tariff);
+      if (gain > 0) return gain;
     }
-    return sum;
+    return 0;
   };
 
   return boosterList.map((booster) => {
     if (booster.scope !== 'account') return booster;
 
     const portfolioNet = Math.max(0, portfolioNetGain(booster));
-    const baselineNet = Math.max(0, baselineNetGain(booster));
+    const fallbackNet = Math.max(0, fallbackNetGain(booster));
 
-    const netForPricing = portfolioNet > 0 ? portfolioNet : baselineNet;
+    const netForPricing = portfolioNet > 0 ? portfolioNet : fallbackNet;
     const rawPrice = computeBoosterPriceFromNet(netForPricing, pricing);
     const finalPrice = Number.isFinite(rawPrice) ? rawPrice : 0;
 
@@ -1235,6 +1259,7 @@ function runSelfTests() {
     (weekly.durationDays * 24);
   const boosterNet = netGainSmall * boosterShare * coverageWeekly;
   const minBonusShare = DEFAULT_PRICING.investorBonusPct / 100;
+  const captureShare = DEFAULT_PRICING.captureSharePct / 100;
   const netAfterPrice = boosterNet - pricedSmall;
   console.assert(
     pricedSmall <= boosterNet / (1 + minBonusShare) + 1e-6,
@@ -1243,6 +1268,10 @@ function runSelfTests() {
   console.assert(
     netAfterPrice >= pricedSmall * minBonusShare - 1e-6,
     'investor should retain guaranteed bonus share even at минимальном депозите'
+  );
+  console.assert(
+    pricedSmall <= boosterNet * captureShare + 1e-6,
+    'price should not превышать захваченную долю чистой прибыли'
   );
 
   const blockedBooster: Booster[] = [
@@ -3226,6 +3255,7 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   };
 
   const previewControls = normalizePricingControls(draft);
+  const captureShare = Math.max(0, previewControls.captureSharePct / 100);
   const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
   const sampleDeposit = Math.max(1, previewControls.anchorDeposit || DEFAULT_PRICING.anchorDeposit);
   const sampleNet = Math.max(1, sampleDeposit * 0.04);
@@ -3235,6 +3265,17 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   return (
     <div className="pricing-editor">
       <div className="pricing-editor__grid">
+        <label className="field">
+          <span className="field-label">Доля прибыли, которую забирает бустер (%)</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={draft.captureSharePct}
+            onChange={(e) => update('captureSharePct', Number(e.target.value))}
+          />
+          <span className="field-hint">Какую часть чистой прибыли бустер превращает в свою цену.</span>
+        </label>
         <label className="field">
           <span className="field-label">Гарантированный бонус инвестору (%)</span>
           <input
@@ -3280,12 +3321,13 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
       <div className="pricing-editor__insight">
         <p>
           При чистой прибыли {fmtMoney(sampleNet, 'USD')} за цикл цена составит примерно{' '}
-          {fmtMoney(samplePrice, 'USD')}. Покупатель получит минимум{' '}
+          {fmtMoney(samplePrice, 'USD')} (захват {fmtPercent(captureShare, 0)}). Покупатель получит минимум{' '}
           {fmtMoney(guaranteedBonusValue, 'USD')} ({fmtPercent(bonusShare, 0)}) поверх возврата стоимости бустера.
         </p>
         <p className="section-subtitle">
-          Цена всегда делится на <code>1 + бонус</code>, поэтому инвестор не уйдёт в минус даже при минимальном депозите.
-          Дополнительно действуют минимальная и максимальная планки, если они не нарушают гарантированный бонус.
+          Базовая формула: <code>чистая&nbsp;прибыль × доля&nbsp;захвата</code>. Далее цена ограничивается ROI (делением на
+          <code>1 + бонус</code>), минимальной и максимальной планкой — но только если это не лишает инвестора гарантированного
+          дохода.
         </p>
       </div>
 
