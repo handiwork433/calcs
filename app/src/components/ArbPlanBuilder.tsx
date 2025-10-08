@@ -515,8 +515,8 @@ function computeMomentum(day: number, horizon: number, profile: ScenarioProfile)
 }
 
 const DEFAULT_PRICING: PricingControls = {
-  captureShareFloorPct: 15,
-  captureShareCeilPct: 55,
+  captureShareFloorPct: 85,
+  captureShareCeilPct: 95,
   capturePivotNet: 200,
   investorBonusPct: 20,
   minPrice: 0.5,
@@ -673,6 +673,28 @@ function programNetGain(amount: number, tariff: Tariff, feeRate: number) {
   return Math.max(0, net);
 }
 
+function boosterActiveHours(booster: Booster, tariff: Tariff) {
+  const planHours = Math.max(0, tariff.durationDays * 24);
+  if (planHours <= 0) return 0;
+  return Math.min(Math.max(0, booster.durationHours || 0), planHours);
+}
+
+function boosterActiveDays(booster: Booster, tariff: Tariff) {
+  const hours = boosterActiveHours(booster, tariff);
+  return hours > 0 ? hours / 24 : 0;
+}
+
+function boosterBonusNet(amount: number, booster: Booster, tariff: Tariff) {
+  const principal = Math.max(0, amount);
+  if (!(principal > 0)) return 0;
+  const effectShare = boosterEffectShare(booster);
+  if (!(effectShare > 0)) return 0;
+  const activeDays = boosterActiveDays(booster, tariff);
+  if (!(activeDays > 0)) return 0;
+  const grossBonus = principal * effectShare * activeDays;
+  return Math.max(0, grossBonus);
+}
+
 function computeBoosterPriceFromNet(netGain: number, controls: PricingControls) {
   if (!(netGain > 0)) return 0;
   const captureShare = Math.max(0, captureShareForNet(netGain, controls));
@@ -720,20 +742,9 @@ function smartPriceBoostersDyn(
   const sortedByMin = [...eligibleTs].sort((a, b) => a.baseMin - b.baseMin);
   const anchorDeposit = Math.max(0, pricing.anchorDeposit || 0);
 
-  const coverageShare = (booster: Booster, tariff: Tariff) => {
-    const totalHours = tariff.durationDays * 24;
-    if (totalHours <= 0) return 0;
-    return clamp(Math.min(booster.durationHours, totalHours) / totalHours, 0, 1);
-  };
-
   const netGainFor = (booster: Booster, amount: number, tariff: Tariff) => {
-    const effectShare = boosterEffectShare(booster);
-    if (effectShare <= 0) return 0;
-    const coverage = coverageShare(booster, tariff);
-    if (coverage <= 0) return 0;
-    const net = programNetGain(amount, tariff, sub.fee);
-    if (net <= 0) return 0;
-    return net * effectShare * coverage;
+    if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) return 0;
+    return boosterBonusNet(amount, booster, tariff);
   };
 
   const portfolioNetGain = (booster: Booster) => {
@@ -741,7 +752,6 @@ function smartPriceBoostersDyn(
     for (const it of portfolio) {
       const tariff = tariffs.find((x) => x.id === it.tariffId);
       if (!tariff) continue;
-      if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
       const amount = Math.max(0, Number(it.amount) || 0);
       sum += netGainFor(booster, amount, tariff);
     }
@@ -751,7 +761,6 @@ function smartPriceBoostersDyn(
   const fallbackNetGain = (booster: Booster) => {
     if (!(anchorDeposit > 0)) return 0;
     for (const tariff of sortedByMin) {
-      if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
       const principal = Math.max(anchorDeposit, tariff.baseMin, tariff.recommendedPrincipal ?? 0);
       const gain = netGainFor(booster, principal, tariff);
       if (gain > 0) return gain;
@@ -765,7 +774,9 @@ function smartPriceBoostersDyn(
     const portfolioNet = Math.max(0, portfolioNetGain(booster));
     const fallbackNet = Math.max(0, fallbackNetGain(booster));
 
-    const netForPricing = portfolioNet > 0 ? portfolioNet : fallbackNet;
+    const netBase = portfolioNet > 0 ? portfolioNet : fallbackNet;
+    const bonusShare = Math.max(0, pricing.investorBonusPct / 100);
+    const netForPricing = netBase * (1 + bonusShare);
     const rawPrice = computeBoosterPriceFromNet(netForPricing, pricing);
     const finalPrice = Number.isFinite(rawPrice) ? rawPrice : 0;
 
@@ -906,7 +917,6 @@ function computePortfolioState({
       if (!t) return null;
       const programInsight = programInsights[t.id];
       const amount = Math.max(0, Number(item.amount) || 0);
-      const hours = t.durationDays * 24;
       const rate = tariffRate(t, optimism);
       const applicable = chosenAcc.filter(
         (b) => !Array.isArray(b.blockedTariffs) || !b.blockedTariffs.includes(t.id)
@@ -920,31 +930,34 @@ function computePortfolioState({
       const grossBase = dailyGrossBase * t.durationDays;
       const feeBase = grossBase * feeRate;
       const netBase = grossBase - feeBase - programFee;
-      const baseFactor = grossBase - feeBase;
-
       let multiplier = 1;
       const notes: string[] = [];
       const boosterNetById: Record<string, number> = {};
+      const boosterStatsById: Record<string, { net: number; hours: number }> = {};
+      let boosterBonusTotal = 0;
       for (const b of applicable) {
         const effectShare = boosterEffectShare(b);
         if (effectShare <= 0) continue;
-        const normalizedShare = baseFactor > 0 ? clamp(netBase / baseFactor, 0, 1) : 0;
-        const mul = 1 + effectShare * normalizedShare;
-        multiplier *= mul;
-
-        const gainNet = netBase > 0 ? netBase * effectShare : 0;
+        const activeHours = boosterActiveHours(b, t);
+        const activeDays = activeHours / 24;
+        const gainNet = boosterBonusNet(amount, b, t);
         if (gainNet > 0) {
           boosterNetGain.set(b.id, (boosterNetGain.get(b.id) || 0) + gainNet);
           boosterNetById[b.id] = (boosterNetById[b.id] || 0) + gainNet;
+          boosterStatsById[b.id] = {
+            net: (boosterStatsById[b.id]?.net || 0) + gainNet,
+            hours: (boosterStatsById[b.id]?.hours || 0) + activeHours
+          };
+          boosterBonusTotal += gainNet;
         }
 
-        const coverage = hours > 0 ? Math.min(b.durationHours, hours) / hours : 0;
+        const coverage = t.durationDays > 0 ? activeHours / (t.durationDays * 24) : 0;
         notes.push(
-          `${b.name}: ×${mul.toFixed(3)} • прирост ${(effectShare * 100).toFixed(1)}% • покрытие ${(coverage *
-            100
-          ).toFixed(0)}%`
+          `${b.name}: бонус ${(effectShare * activeDays * 100).toFixed(1)}% • активен ${activeHours.toFixed(0)}ч`
         );
       }
+
+      const boosterBonusPerDay = duration > 0 ? boosterBonusTotal / duration : boosterBonusTotal;
 
       const dailyGross = amount * rate * multiplier;
       const feePerDay = dailyGross * feeRate;
@@ -967,6 +980,9 @@ function computePortfolioState({
         netNoBoost: netBase,
         netNoBoostPerDay: netBasePerDay,
         boosterNetById,
+        boosterStatsById,
+        boosterBonusTotal,
+        boosterBonusPerDay,
         programFee,
         programFeePerDay,
         recommendedPrincipal:
@@ -1006,6 +1022,7 @@ function computePortfolioState({
 
   const rows: PortfolioRow[] = rowsBase.map((r: any) => {
     const boosterNetById: Record<string, number> = r.boosterNetById || {};
+    const boosterStatsById: Record<string, { net: number; hours: number }> = r.boosterStatsById || {};
     let accAlloc = 0;
     const boosterDetails: PortfolioRow['boosterDetails'] = {};
     const rateMin = tariffRateMin(r.t);
@@ -1016,11 +1033,13 @@ function computePortfolioState({
       const priceShare = (b.price || 0) * share;
       accAlloc += priceShare;
 
-      const activeHours = Math.min(b.durationHours, r.t.durationDays * 24);
-      const netGain = boosterNetById[b.id] ?? 0;
+      const stats = boosterStatsById[b.id];
+      const activeHours = stats?.hours ?? Math.min(b.durationHours, r.t.durationDays * 24);
+      const netGain = stats?.net ?? boosterNetById[b.id] ?? 0;
       const netPerHour = activeHours > 0 ? netGain / activeHours : 0;
       const paybackHours = netPerHour > 0 && priceShare > 0 ? priceShare / netPerHour : null;
-      const coverage = r.t.durationDays > 0 ? Math.min(b.durationHours, r.t.durationDays * 24) / (r.t.durationDays * 24) : 0;
+      const planHours = r.t.durationDays * 24;
+      const coverage = planHours > 0 ? Math.min(activeHours, planHours) / planHours : 0;
       boosterDetails[b.id] = {
         netGain,
         priceShare,
@@ -1033,8 +1052,11 @@ function computePortfolioState({
     const programFee = r.programFee ?? 0;
     const programFeePerDay = r.programFeePerDay ?? (duration > 0 ? programFee / duration : programFee);
 
-    const netPerDayBeforeSub = r.dailyGross - r.feePerDay - programFeePerDay;
-    const netBeforeSub = r.gross - r.fee - programFee;
+    const boosterBonusPerDay = r.boosterBonusPerDay ?? 0;
+    const boosterBonusTotal = r.boosterBonusTotal ?? 0;
+
+    const netPerDayBeforeSub = r.dailyGross - r.feePerDay - programFeePerDay + boosterBonusPerDay;
+    const netBeforeSub = r.gross - r.fee - programFee + boosterBonusTotal;
     const dailyGrossMin = r.amount * rateMin * r.multiplier;
     const dailyGrossMax = r.amount * rateMax * r.multiplier;
     const feePerDayMin = dailyGrossMin * feeRate;
@@ -1055,10 +1077,10 @@ function computePortfolioState({
     const lockedPerDayBeforeSub = isLocked ? netPerDayBeforeSub : 0;
     const netPerDayFinal = unlockedPerDayBeforeSub - subPerDay;
     const netFinal = netBeforeSub - subAlloc;
-    const netPerDayBeforeSubMin = dailyGrossMin - feePerDayMin - programFeePerDay;
-    const netPerDayBeforeSubMax = dailyGrossMax - feePerDayMax - programFeePerDay;
-    const netBeforeSubMin = grossMin - feeMin - programFee;
-    const netBeforeSubMax = grossMax - feeMax - programFee;
+    const netPerDayBeforeSubMin = dailyGrossMin - feePerDayMin - programFeePerDay + boosterBonusPerDay;
+    const netPerDayBeforeSubMax = dailyGrossMax - feePerDayMax - programFeePerDay + boosterBonusPerDay;
+    const netBeforeSubMin = grossMin - feeMin - programFee + boosterBonusTotal;
+    const netBeforeSubMax = grossMax - feeMax - programFee + boosterBonusTotal;
     const netPerDayFinalMin = netPerDayBeforeSubMin - subPerDay;
     const netPerDayFinalMax = netPerDayBeforeSubMax - subPerDay;
     const netFinalMin = netBeforeSubMin - subAlloc;
@@ -1073,7 +1095,13 @@ function computePortfolioState({
     const recommendedPrincipal =
       insight?.recommendedPrincipal ?? r.recommendedPrincipal ?? r.t.recommendedPrincipal ?? null;
 
-    const { boosterNetById: _ignored, ...rest } = r;
+    const {
+      boosterNetById: _ignored,
+      boosterStatsById: _ignoredStats,
+      boosterBonusTotal: _ignoredBonusTotal,
+      boosterBonusPerDay: _ignoredBonusPerDay,
+      ...rest
+    } = r;
 
     return {
       ...rest,
@@ -1144,7 +1172,13 @@ function computePortfolioState({
 
   const liftNet = rows.reduce((s, r) => s + r.boosterLift, 0);
   const liftPerPlanDay = rows.reduce((s, r) => s + r.boosterLiftPerDay, 0);
-  const boosterActiveHoursTotal = appliedBoosters.reduce((sum, b) => sum + b.durationHours, 0);
+  const boosterActiveHoursTotal = rows.reduce((sum, r) => {
+    const details = Object.values(r.boosterDetails || {});
+    if (details.length === 0) return sum;
+    const planHours = r.t.durationDays * 24;
+    const active = details.reduce((acc, detail) => acc + (detail.coverage || 0) * planHours, 0);
+    return sum + active;
+  }, 0);
   const boosterNetBeforeCost = appliedBoosters.reduce(
     (sum, b) => sum + (boosterNetGain.get(b.id) || 0),
     0
@@ -1199,7 +1233,8 @@ function computePortfolioState({
       const projDays = mode === 'auto-roll' ? 30 : Math.min(30, r.t.durationDays);
       oneTimeProgramFee += r.programFee ?? 0;
 
-      const netPerDayBefore = r.dailyGross - r.feePerDay;
+      const netPerDayBefore =
+        r.dailyGross - r.feePerDay + (r.boosterBonusPerDay ?? 0);
       total += netPerDayBefore * projDays;
     }
     total -= oneTimeProgramFee;
@@ -1299,28 +1334,25 @@ function runSelfTests() {
   console.assert(pricedBig > pricedSmall, 'dynamic price should grow with portfolio');
 
   const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
-  const netGainSmall = programNetGain(100, weekly, elite.fee);
-  const boosterShare = boosterEffectShare(testBooster[0]);
-  const coverageWeekly = Math.min(testBooster[0].durationHours, weekly.durationDays * 24) /
-    (weekly.durationDays * 24);
-  const boosterNet = netGainSmall * boosterShare * coverageWeekly;
+  const boosterNet = boosterBonusNet(100, testBooster[0], weekly);
   const minBonusShare = DEFAULT_PRICING.investorBonusPct / 100;
-  const captureShare = captureShareForNet(boosterNet, DEFAULT_PRICING);
+  const pricingNet = boosterNet * (1 + minBonusShare);
+  const captureShare = captureShareForNet(pricingNet, DEFAULT_PRICING);
   const captureFloor = DEFAULT_PRICING.captureShareFloorPct / 100;
   const captureCeil = DEFAULT_PRICING.captureShareCeilPct / 100;
-  const captureHuge = captureShareForNet(boosterNet * 120, DEFAULT_PRICING);
-  const netAfterPrice = boosterNet - pricedSmall;
+  const captureHuge = captureShareForNet(pricingNet * 120, DEFAULT_PRICING);
+  const netAfterPrice = pricingNet - pricedSmall;
   console.assert(
-    pricedSmall <= boosterNet / (1 + minBonusShare) + 1e-6,
-    'price must honour guaranteed bonus cap'
+    pricedSmall <= boosterNet + 1e-6,
+    'price should not превышать базовую долю инвестора'
   );
   console.assert(
     netAfterPrice >= pricedSmall * minBonusShare - 1e-6,
     'investor should retain guaranteed bonus share even at минимальном депозите'
   );
   console.assert(
-    pricedSmall <= boosterNet * captureShare + 1e-6,
-    'price should not превышать захваченную долю чистой прибыли'
+    pricedSmall >= boosterNet * 0.8,
+    'price should быть близка к базовой выгоде при высоком floor'
   );
   console.assert(
     captureShare >= captureFloor - 1e-6 && captureHuge <= captureCeil + 1e-6,
@@ -1532,10 +1564,10 @@ function evaluateBoosterAgainstPortfolio({
     if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
 
     const amount = Math.max(0, Number(item.amount) || 0);
-    const net = programNetGain(amount, tariff, sub.fee);
-    if (net <= 0) continue;
+    const gain = boosterBonusNet(amount, booster, tariff);
+    if (gain <= 0) continue;
 
-    netGain += net * effectShare;
+    netGain += gain;
     coverageDeposits += amount;
     affectedTariffs.add(tariff.id);
   }
@@ -3310,11 +3342,12 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
 
   const previewControls = normalizePricingControls(draft);
   const sampleDeposit = Math.max(1, previewControls.anchorDeposit || DEFAULT_PRICING.anchorDeposit);
-  const sampleNet = Math.max(1, sampleDeposit * 0.04);
+  const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
+  const sampleBaseNet = Math.max(1, sampleDeposit * 0.04);
+  const sampleNet = sampleBaseNet * (1 + bonusShare);
   const captureShareFloor = Math.max(0, previewControls.captureShareFloorPct / 100);
   const captureShareCeil = Math.max(captureShareFloor, previewControls.captureShareCeilPct / 100);
   const captureShare = Math.max(0, captureShareForNet(sampleNet, previewControls));
-  const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
   const samplePrice = computeBoosterPriceFromNet(sampleNet, previewControls);
   const guaranteedBonusValue = samplePrice * bonusShare;
 
