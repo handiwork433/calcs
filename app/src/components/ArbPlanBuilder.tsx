@@ -395,10 +395,6 @@ function tariffRateMax(t: Tariff) {
   return t.dailyRateMax;
 }
 
-function boosterCoverageMultiplier(value: number, coverageFrac: number) {
-  return 1 + value * clamp(coverageFrac, 0, 1);
-}
-
 const SCENARIO_WORST: ScenarioProfile = {
   label: 'Кризисный',
   optimism: 0,
@@ -586,6 +582,20 @@ function readPersistedState(): PersistedState | null {
   }
 }
 
+function boosterEffectShare(booster: Booster) {
+  return Math.max(0, booster.effect?.value ?? 0);
+}
+
+function programNetGain(amount: number, tariff: Tariff, feeRate: number) {
+  const principal = Math.max(0, amount);
+  if (principal <= 0) return 0;
+  const gross = principal * tariffRate(tariff) * tariff.durationDays;
+  const fee = gross * feeRate;
+  const entryFee = tariff.entryFee ?? 0;
+  const net = gross - fee - entryFee;
+  return Math.max(0, net);
+}
+
 function smartPriceBoostersDyn(
   boosterList: Booster[],
   tariffs: Tariff[],
@@ -607,32 +617,30 @@ function smartPriceBoostersDyn(
   const maxPrice = Math.max(minPrice, pricing.maxPrice);
 
   const portfolioNetGain = (b: Booster) => {
+    const effectShare = boosterEffectShare(b);
+    if (effectShare <= 0) return 0;
     let sum = 0;
     for (const it of portfolio) {
-      const t = tariffs.find((x) => x.id === it.tariffId);
-      if (!t) continue;
-      if (Array.isArray(b.blockedTariffs) && b.blockedTariffs.includes(t.id)) continue;
+      const tariff = tariffs.find((x) => x.id === it.tariffId);
+      if (!tariff) continue;
+      if (Array.isArray(b.blockedTariffs) && b.blockedTariffs.includes(tariff.id)) continue;
       const amount = Math.max(0, Number(it.amount) || 0);
-      const hours = t.durationDays * 24;
-      const cov = Math.min(b.durationHours, hours) / hours;
-      const eff = b.effect?.value ?? 0;
-      if (eff <= 0 || cov <= 0) continue;
-      const grossGain = amount * tariffRate(t) * t.durationDays * (eff * cov);
-      sum += grossGain * (1 - sub.fee);
+      const net = programNetGain(amount, tariff, sub.fee);
+      if (net <= 0) continue;
+      sum += net * effectShare;
     }
     return sum;
   };
 
   const baselineNetGain = (b: Booster) => {
+    const effectShare = boosterEffectShare(b);
+    if (effectShare <= 0) return 0;
     let sum = 0;
-    for (const t of lowT) {
-      if (Array.isArray(b.blockedTariffs) && b.blockedTariffs.includes(t.id)) continue;
-      const hours = t.durationDays * 24;
-      const cov = Math.min(b.durationHours, hours) / hours;
-      const eff = b.effect?.value ?? 0;
-      if (eff <= 0 || cov <= 0) continue;
-      const grossGain = t.baseMin * tariffRate(t) * t.durationDays * (eff * cov);
-      sum += grossGain * (1 - sub.fee);
+    for (const tariff of lowT) {
+      if (Array.isArray(b.blockedTariffs) && b.blockedTariffs.includes(tariff.id)) continue;
+      const net = programNetGain(tariff.baseMin, tariff, sub.fee);
+      if (net <= 0) continue;
+      sum += net * effectShare;
     }
     return sum;
   };
@@ -640,28 +648,22 @@ function smartPriceBoostersDyn(
   return boosterList.map((b) => {
     if (b.scope !== 'account') return b;
 
-    const baseNetRaw = baselineNetGain(b);
-    const portNetRaw = portfolioNetGain(b);
+    const baseNet = Math.max(0, baselineNetGain(b));
+    const portNet = Math.max(0, portfolioNetGain(b));
 
-    const baseNet = Math.max(0, baseNetRaw);
-    const portNet = Math.max(0, portNetRaw);
-
-    const baseCap = baseNet > 0 ? baseNet / (1 + investorBonusShare) : 0;
-    const baseTarget = baseNet * baseCapture;
-    let dynPrice = baseCap > 0 ? Math.min(baseTarget, baseCap) : baseTarget;
-
+    const bonusFactor = 1 + investorBonusShare;
+    const baseComponent = baseNet * baseCapture;
     const extraNet = Math.max(0, portNet - baseNet);
-    if (extraNet > 0) {
-      const extraCap = extraNet / (1 + investorBonusShare);
-      dynPrice += extraCap * whaleCapture;
-    }
+    const extraComponent = extraNet * whaleCapture;
+
+    let dynPrice = (baseComponent + extraComponent) / (bonusFactor || 1);
 
     const roiCaps: number[] = [];
     if (baseNet > 0) {
-      roiCaps.push(baseCap);
+      roiCaps.push(baseNet / (bonusFactor || 1));
     }
     if (portNet > 0) {
-      roiCaps.push(portNet / (1 + investorBonusShare));
+      roiCaps.push(portNet / (bonusFactor || 1));
     }
 
     if (roiCaps.length === 0) {
@@ -821,22 +823,38 @@ function computePortfolioState({
         (b) => !Array.isArray(b.blockedTariffs) || !b.blockedTariffs.includes(t.id)
       );
 
-      let multiplier = 1;
-      const notes: string[] = [];
-      const boosterNetById: Record<string, number> = {};
       const duration = t.durationDays > 0 ? t.durationDays : 1;
       const programFee = t.entryFee ?? 0;
       const programFeePerDay = duration > 0 ? programFee / duration : programFee;
-      for (const b of applicable) {
-        const cov = Math.min(b.durationHours, hours) / hours;
-        const mul = boosterCoverageMultiplier(b.effect.value, cov);
-        multiplier *= mul;
-        notes.push(`${b.name}: ×${mul.toFixed(3)} (cov ${(cov * 100).toFixed(0)}%)`);
 
-        const gainGross = amount * rate * t.durationDays * (b.effect.value * cov);
-        const gainNet = gainGross * (1 - feeRate);
-        boosterNetGain.set(b.id, (boosterNetGain.get(b.id) || 0) + gainNet);
-        boosterNetById[b.id] = (boosterNetById[b.id] || 0) + gainNet;
+      const dailyGrossBase = amount * rate;
+      const grossBase = dailyGrossBase * t.durationDays;
+      const feeBase = grossBase * feeRate;
+      const netBase = grossBase - feeBase - programFee;
+      const baseFactor = grossBase - feeBase;
+
+      let multiplier = 1;
+      const notes: string[] = [];
+      const boosterNetById: Record<string, number> = {};
+      for (const b of applicable) {
+        const effectShare = boosterEffectShare(b);
+        if (effectShare <= 0) continue;
+        const normalizedShare = baseFactor > 0 ? clamp(netBase / baseFactor, 0, 1) : 0;
+        const mul = 1 + effectShare * normalizedShare;
+        multiplier *= mul;
+
+        const gainNet = netBase > 0 ? netBase * effectShare : 0;
+        if (gainNet > 0) {
+          boosterNetGain.set(b.id, (boosterNetGain.get(b.id) || 0) + gainNet);
+          boosterNetById[b.id] = (boosterNetById[b.id] || 0) + gainNet;
+        }
+
+        const coverage = hours > 0 ? Math.min(b.durationHours, hours) / hours : 0;
+        notes.push(
+          `${b.name}: ×${mul.toFixed(3)} • прирост ${(effectShare * 100).toFixed(1)}% • покрытие ${(coverage *
+            100
+          ).toFixed(0)}%`
+        );
       }
 
       const dailyGross = amount * rate * multiplier;
@@ -844,10 +862,6 @@ function computePortfolioState({
       const gross = dailyGross * t.durationDays;
       const fee = feePerDay * t.durationDays;
 
-      const dailyGrossBase = amount * rate;
-      const grossBase = dailyGrossBase * t.durationDays;
-      const feeBase = grossBase * feeRate;
-      const netBase = grossBase - feeBase - programFee;
       const netBasePerDay = duration > 0 ? netBase / duration : netBase;
 
       return {
@@ -1050,7 +1064,8 @@ function computePortfolioState({
     boosterActiveHoursTotal > 0 ? boosterNetBeforeCost / boosterActiveHoursTotal : 0;
   const liftPerActiveHour =
     boosterActiveHoursTotal > 0 ? liftNet / boosterActiveHoursTotal : 0;
-  const roi = accCostApplied > 0 ? liftNet / accCostApplied : 0;
+  const netAfterCost = liftNet - accCostApplied;
+  const roi = accCostApplied > 0 ? netAfterCost / accCostApplied : 0;
   const paybackHours =
     boosterNetPerActiveHourBeforeCost > 0 ? accCostApplied / boosterNetPerActiveHourBeforeCost : null;
 
@@ -1151,15 +1166,15 @@ function computePortfolioState({
     projection30,
     boosterSummary: {
       liftNet,
-      liftPerPlanDay,
-      liftPerActiveHour,
-      activeHours: boosterActiveHoursTotal,
-      netBeforeCost: boosterNetBeforeCost,
-      netAfterCost: liftNet,
-      netAfterCostPerHour: liftPerActiveHour,
-      spend: accCostApplied,
-      deposit: accCostApplied,
-      roi,
+    liftPerPlanDay,
+    liftPerActiveHour,
+    activeHours: boosterActiveHoursTotal,
+    netBeforeCost: boosterNetBeforeCost,
+    netAfterCost,
+    netAfterCostPerHour: boosterActiveHoursTotal > 0 ? netAfterCost / boosterActiveHoursTotal : 0,
+    spend: accCostApplied,
+    deposit: accCostApplied,
+    roi,
       paybackHours,
       coverageShare
     },
@@ -1169,24 +1184,6 @@ function computePortfolioState({
 }
 
 function runSelfTests() {
-  console.assert(boosterCoverageMultiplier(0.5, 0) === 1, 'cov 0 should be 1x');
-  console.assert(Math.abs(boosterCoverageMultiplier(0.5, 1) - 1.5) < 1e-9, '+50% full day ≈ 1.5x');
-  console.assert(Math.abs(boosterCoverageMultiplier(0.5, 2) - 1.5) < 1e-9, 'coverage clamps to 1');
-
-  const tenDaysHours = 10 * 24;
-  const covTenDay = Math.min(24, tenDaysHours) / tenDaysHours;
-  const mult = 1 + 1 * covTenDay;
-  console.assert(Math.abs(mult - 1.1) < 1e-9, '+100% x24h on 10d plan should be ×1.1');
-
-  const fee = 0.2,
-    rate = 0.01,
-    days = 10,
-    value = 1.0;
-  const price = 100 * rate * days * value * covTenDay * (1 - fee);
-  const denom = rate * days * value * covTenDay * (1 - fee);
-  const beAmount = denom > 0 ? price / denom : Infinity;
-  console.assert(Math.abs(beAmount - 100) < 1e-9, 'breakeven amount should round-trip');
-
   console.assert(subMeets('silver', 'gold') === true, 'gold should unlock silver');
   console.assert(subMeets('gold', 'silver') === false, 'silver should NOT unlock gold');
   console.assert(withinLevel(5, 5) && withinLevel(6, 5) && !withinLevel(4, 5), 'withinLevel checks');
@@ -1213,14 +1210,13 @@ function runSelfTests() {
   console.assert(pricedBig > pricedSmall, 'dynamic price should grow with portfolio');
 
   const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
-  const weeklyHours = weekly.durationDays * 24;
-  const covWeekly = Math.min(24, weeklyHours) / weeklyHours;
-  const grossGainSmall = 100 * tariffRate(weekly) * weekly.durationDays * covWeekly;
-  const netGainSmall = grossGainSmall * (1 - elite.fee);
+  const netGainSmall = programNetGain(100, weekly, elite.fee);
+  const boosterShare = boosterEffectShare(testBooster[0]);
+  const boosterNet = netGainSmall * boosterShare;
   const minBonusShare = DEFAULT_PRICING.investorRoiFloorPct / 100;
-  const netAfterPrice = netGainSmall - pricedSmall;
+  const netAfterPrice = boosterNet - pricedSmall;
   console.assert(
-    pricedSmall <= netGainSmall / (1 + minBonusShare) + 1e-6,
+    pricedSmall <= boosterNet / (1 + minBonusShare) + 1e-6,
     'price must honour guaranteed bonus cap'
   );
   console.assert(
@@ -1410,23 +1406,32 @@ function evaluateBoosterAgainstPortfolio({
   let coverageDeposits = 0;
   const affectedTariffs = new Set<string>();
 
+  const effectShare = boosterEffectShare(booster);
+  if (effectShare <= 0) {
+    return {
+      booster,
+      netGain: 0,
+      netPerActiveHour: 0,
+      netAfterCostPerHour: booster.durationHours > 0 ? -booster.price / booster.durationHours : 0,
+      netAfterCost: -booster.price,
+      roi: booster.price > 0 ? -1 : null,
+      paybackHours: null,
+      coverageDeposits: 0,
+      coverageShare: 0,
+      affectedTariffs: 0
+    };
+  }
+
   for (const item of portfolio) {
     const tariff = tariffs.find((t) => t.id === item.tariffId);
     if (!tariff) continue;
     if (Array.isArray(booster.blockedTariffs) && booster.blockedTariffs.includes(tariff.id)) continue;
 
     const amount = Math.max(0, Number(item.amount) || 0);
-    const hours = tariff.durationDays * 24;
-    const coverage = Math.min(booster.durationHours, hours) / hours;
-    const effect = booster.effect?.value ?? 0;
-
-    if (effect <= 0 || coverage <= 0) continue;
-
-    const grossGain = amount * tariffRate(tariff) * tariff.durationDays * (effect * coverage);
-    const net = grossGain * (1 - sub.fee);
+    const net = programNetGain(amount, tariff, sub.fee);
     if (net <= 0) continue;
 
-    netGain += net;
+    netGain += net * effectShare;
     coverageDeposits += amount;
     affectedTariffs.add(tariff.id);
   }
