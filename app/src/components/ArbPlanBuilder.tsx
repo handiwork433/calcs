@@ -207,6 +207,7 @@ type PricingControls = {
   investorRoiFloorPct: number;
   minPrice: number;
   maxPrice: number;
+  baselinePrincipal: number;
 };
 
 type ProgramDesignControls = {
@@ -517,7 +518,8 @@ const DEFAULT_PRICING: PricingControls = {
   whaleCapturePct: 90,
   investorRoiFloorPct: 20,
   minPrice: 0.5,
-  maxPrice: 1_000_000
+  maxPrice: 1_000_000,
+  baselinePrincipal: 100
 };
 
 const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
@@ -615,6 +617,7 @@ function smartPriceBoostersDyn(
   const investorBonusShare = Math.max(0, pricing.investorRoiFloorPct / 100);
   const minPrice = Math.max(0, pricing.minPrice);
   const maxPrice = Math.max(minPrice, pricing.maxPrice);
+  const baselinePrincipal = Math.max(0, pricing.baselinePrincipal || 0);
 
   const portfolioNetGain = (b: Booster) => {
     const effectShare = boosterEffectShare(b);
@@ -638,7 +641,8 @@ function smartPriceBoostersDyn(
     let sum = 0;
     for (const tariff of lowT) {
       if (Array.isArray(b.blockedTariffs) && b.blockedTariffs.includes(tariff.id)) continue;
-      const net = programNetGain(tariff.baseMin, tariff, sub.fee);
+      const principal = Math.max(tariff.baseMin, baselinePrincipal, tariff.recommendedPrincipal ?? 0);
+      const net = programNetGain(principal, tariff, sub.fee);
       if (net <= 0) continue;
       sum += net * effectShare;
     }
@@ -659,11 +663,10 @@ function smartPriceBoostersDyn(
     let dynPrice = (baseComponent + extraComponent) / (bonusFactor || 1);
 
     const roiCaps: number[] = [];
-    if (baseNet > 0) {
-      roiCaps.push(baseNet / (bonusFactor || 1));
-    }
     if (portNet > 0) {
       roiCaps.push(portNet / (bonusFactor || 1));
+    } else if (baseNet > 0) {
+      roiCaps.push(baseNet / (bonusFactor || 1));
     }
 
     if (roiCaps.length === 0) {
@@ -3206,7 +3209,8 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
       whaleCapturePct: clamp(draft.whaleCapturePct, 0, 100),
       investorRoiFloorPct: Math.max(0, draft.investorRoiFloorPct),
       minPrice: Math.max(0, draft.minPrice),
-      maxPrice: Math.max(Math.max(0, draft.minPrice), draft.maxPrice)
+      maxPrice: Math.max(Math.max(0, draft.minPrice), draft.maxPrice),
+      baselinePrincipal: Math.max(0, draft.baselinePrincipal || 0)
     };
     setPricing(normalized);
   };
@@ -3214,7 +3218,8 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   const baseCaptureShare = clamp(draft.baseCapturePct / 100, 0, 1);
   const whaleCaptureShare = clamp(draft.whaleCapturePct / 100, 0, 1);
   const roiFloorShare = Math.max(0, draft.investorRoiFloorPct / 100);
-  const sampleWin = 100; // условная чистая выгода до учёта цены бустера
+  const sampleDeposit = Math.max(1, draft.baselinePrincipal || DEFAULT_PRICING.baselinePrincipal);
+  const sampleWin = Math.max(1, sampleDeposit * 0.04); // условная чистая выгода до учёта цены бустера
   const baseCapSample = roiFloorShare > 0 ? sampleWin / (1 + roiFloorShare) : sampleWin;
   const baseSuggested = Math.min(baseCapSample, sampleWin * baseCaptureShare);
   const guaranteedBonus = baseSuggested * roiFloorShare;
@@ -3261,6 +3266,18 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
           <span className="field-hint">Минимальная доходность от покупки бустера относительно его цены.</span>
         </label>
         <label className="field">
+          <span className="field-label">Базовый депозит для расчёта (USD)</span>
+          <input
+            type="number"
+            min={0}
+            value={draft.baselinePrincipal ?? 0}
+            onChange={(e) => update('baselinePrincipal', Number(e.target.value))}
+          />
+          <span className="field-hint">
+            Эта сумма подставляется вместо минимального депозита тарифа при расчёте цены бустера.
+          </span>
+        </label>
+        <label className="field">
           <span className="field-label">Минимальная цена бустера</span>
           <input
             type="number"
@@ -3282,7 +3299,8 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
 
       <div className="pricing-editor__insight">
         <p>
-          При приросте {fmtMoney(sampleWin, 'USD')} (условный пример) базовая цена не превысит{' '}
+          Если чистая прибыль за цикл составит {fmtMoney(sampleWin, 'USD')} на депозите около{' '}
+          {fmtMoney(sampleDeposit, 'USD')}, базовая цена не превысит{' '}
           {fmtMoney(baseSuggested, 'USD')}. Даже на минимальном депозите инвестор заберёт как минимум{' '}
           {fmtMoney(guaranteedBonus, 'USD')} ({fmtPercent(roiFloorShare, 0)}) поверх возврата стоимости бустера.
         </p>
