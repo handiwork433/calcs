@@ -32,7 +32,7 @@ After the dependencies are installed, start the development server with `npm run
 ## Key capabilities
 
 - Dynamic booster pricing that increases with portfolio exposure and respects blocked tariffs
-- Configurable ROI floor for boosters to guarantee investor bonuses relative to price (editor now persists custom presets)
+- Configurable booster pricing with гарантированным бонусом инвестору: новая формула всегда оставляет минимум заданный процент прибыли от цены даже при минимальном депозите
 - Minimal white dashboard with capital, lift and yield stats surfaced in real time, including per-day/project revenue splits
 - Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
@@ -56,3 +56,14 @@ After the dependencies are installed, start the development server with `npm run
 - Scenario lab includes crisis/base/growth presets and defers heavy MMM recalculations so the tab stays responsive for larger portfolios
 
 Self-tests covering ROI maths and pricing safeguards execute automatically on load (see `runSelfTests` inside `ArbPlanBuilder.tsx`).
+
+## Booster pricing formula
+
+Бустер оценивается в несколько шагов, чтобы инвестор не уходил в минус даже с минимальным депозитом:
+
+1. **Базовый сценарий.** Для трёх самых дешёвых тарифов рассчитывается чистый прирост при минимально допустимом депозите. Это гарантированный выигрыш, который инвестор получит даже в самом простом кейсе.
+2. **Гарантированный бонус.** Из базового прироста вычисляется «потолок» цены: она не может превышать прирост, поделённый на `(1 + гарантированный_бонус)`. Например, при бонусе 20 % инвестор всегда забирает минимум 20 % от цены бустера поверх возврата его стоимости.
+3. **Портфельная надбавка.** Если в портфеле есть более крупные депозиты, считается дополнительный выигрыш. Мы берём только заданную долю этого «китового» прироста, снова деля её на `(1 + гарантированный_бонус)`, чтобы инвестор сохранял ту же минимальную доходность.
+4. **Ограничения.** Итоговая цена ограничивается сверху ROI-потолком из пунктов выше, а снизу — минимальной ценой (если она не нарушает ROI). Если прирост нулевой или отрицательный, цена принудительно обнуляется.
+
+Такая схема делает покупку бустера выгодной при любом раскладе и одновременно позволяет проекту забирать долю дополнительной выгоды с крупных портфелей, не нарушая обещанный бонус.

@@ -602,7 +602,7 @@ function smartPriceBoostersDyn(
 
   const baseCapture = clamp(pricing.baseCapturePct / 100, 0, 1);
   const whaleCapture = clamp(pricing.whaleCapturePct / 100, 0, 1);
-  const investorRoiFloor = Math.max(0, pricing.investorRoiFloorPct / 100);
+  const investorBonusShare = Math.max(0, pricing.investorRoiFloorPct / 100);
   const minPrice = Math.max(0, pricing.minPrice);
   const maxPrice = Math.max(minPrice, pricing.maxPrice);
 
@@ -640,21 +640,43 @@ function smartPriceBoostersDyn(
   return boosterList.map((b) => {
     if (b.scope !== 'account') return b;
 
-    const baseNet = baselineNetGain(b);
-    const portNet = portfolioNetGain(b);
+    const baseNetRaw = baselineNetGain(b);
+    const portNetRaw = portfolioNetGain(b);
 
-    const basePrice = Math.max(minPrice, Math.min(maxPrice, baseNet * baseCapture));
-    let dynPrice = basePrice;
-    if (portNet > baseNet) {
-      dynPrice = basePrice + whaleCapture * (portNet - baseNet);
+    const baseNet = Math.max(0, baseNetRaw);
+    const portNet = Math.max(0, portNetRaw);
+
+    const baseCap = baseNet > 0 ? baseNet / (1 + investorBonusShare) : 0;
+    const baseTarget = baseNet * baseCapture;
+    let dynPrice = baseCap > 0 ? Math.min(baseTarget, baseCap) : baseTarget;
+
+    const extraNet = Math.max(0, portNet - baseNet);
+    if (extraNet > 0) {
+      const extraCap = extraNet / (1 + investorBonusShare);
+      dynPrice += extraCap * whaleCapture;
     }
 
-    if (portNet > 0 && investorRoiFloor > 0) {
-      const maxByBonus = portNet / (1 + investorRoiFloor);
-      dynPrice = Math.min(dynPrice, maxByBonus);
+    const roiCaps: number[] = [];
+    if (baseNet > 0) {
+      roiCaps.push(baseCap);
+    }
+    if (portNet > 0) {
+      roiCaps.push(portNet / (1 + investorBonusShare));
     }
 
-    dynPrice = Math.max(minPrice, Math.min(maxPrice, dynPrice));
+    if (roiCaps.length === 0) {
+      dynPrice = 0;
+    } else {
+      const roiMax = Math.min(...roiCaps);
+      const effectiveMax = Math.min(maxPrice, roiMax);
+      dynPrice = Math.min(dynPrice, effectiveMax);
+      const minBound = Math.min(minPrice, effectiveMax);
+      dynPrice = Math.max(dynPrice, minBound);
+    }
+
+    if (!Number.isFinite(dynPrice) || dynPrice < 0) {
+      dynPrice = 0;
+    }
 
     return { ...b, price: parseFloat(dynPrice.toFixed(2)) };
   });
@@ -1189,6 +1211,22 @@ function runSelfTests() {
   const pricedSmall = smartPriceBoostersDyn(testBooster, INIT_TARIFFS, elite, 10, smallPort)[0].price;
   const pricedBig = smartPriceBoostersDyn(testBooster, INIT_TARIFFS, elite, 10, bigPort)[0].price;
   console.assert(pricedBig > pricedSmall, 'dynamic price should grow with portfolio');
+
+  const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
+  const weeklyHours = weekly.durationDays * 24;
+  const cov = Math.min(24, weeklyHours) / weeklyHours;
+  const grossGainSmall = 100 * tariffRate(weekly) * weekly.durationDays * cov;
+  const netGainSmall = grossGainSmall * (1 - elite.fee);
+  const minBonusShare = DEFAULT_PRICING.investorRoiFloorPct / 100;
+  const netAfterPrice = netGainSmall - pricedSmall;
+  console.assert(
+    pricedSmall <= netGainSmall / (1 + minBonusShare) + 1e-6,
+    'price must honour guaranteed bonus cap'
+  );
+  console.assert(
+    netAfterPrice >= pricedSmall * minBonusShare - 1e-6,
+    'investor should retain guaranteed bonus share even at минимальном депозите'
+  );
 
   const blockedBooster: Booster[] = [
     {
@@ -3172,9 +3210,15 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   const whaleCaptureShare = clamp(draft.whaleCapturePct / 100, 0, 1);
   const roiFloorShare = Math.max(0, draft.investorRoiFloorPct / 100);
   const sampleWin = 100; // условная чистая выгода до учёта цены бустера
-  const baseSuggested = sampleWin * baseCaptureShare;
-  const whaleSuggested = baseSuggested + Math.max(0, sampleWin - baseSuggested) * whaleCaptureShare;
-  const roiFloorBonus = draft.minPrice > 0 ? draft.minPrice * roiFloorShare : 0;
+  const baseCapSample = roiFloorShare > 0 ? sampleWin / (1 + roiFloorShare) : sampleWin;
+  const baseSuggested = Math.min(baseCapSample, sampleWin * baseCaptureShare);
+  const guaranteedBonus = baseSuggested * roiFloorShare;
+  const whaleExtra = sampleWin; // воображаем, что крупный портфель удваивает прирост
+  const whaleCapSample = roiFloorShare > 0 ? (sampleWin + whaleExtra) / (1 + roiFloorShare) : sampleWin + whaleExtra;
+  const whaleSuggested = Math.min(
+    baseSuggested + (whaleExtra / (1 + roiFloorShare)) * whaleCaptureShare,
+    whaleCapSample
+  );
 
   return (
     <div className="pricing-editor">
@@ -3233,14 +3277,13 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
 
       <div className="pricing-editor__insight">
         <p>
-          При приросте {fmtMoney(sampleWin, 'USD')} (условный пример) алгоритм предложит цену около{' '}
-          {fmtMoney(baseSuggested, 'USD')} для базовых депозитов и до {fmtMoney(whaleSuggested, 'USD')} для крупных
-          портфелей.
+          При приросте {fmtMoney(sampleWin, 'USD')} (условный пример) базовая цена не превысит{' '}
+          {fmtMoney(baseSuggested, 'USD')}. Даже на минимальном депозите инвестор заберёт как минимум{' '}
+          {fmtMoney(guaranteedBonus, 'USD')} ({fmtPercent(roiFloorShare, 0)}) поверх возврата стоимости бустера.
         </p>
         <p className="section-subtitle">
-          Минимальный бонус инвестора при текущей нижней цене составит ≈ {fmtMoney(roiFloorBonus, 'USD')} (ROI{' '}
-          {fmtPercent(roiFloorShare, 0)}), поэтому проект не считает продажи бустеров доходом и возвращает депозит за
-          бустер вместе с бонусом.
+          Если портфель приносит больше, алгоритм добавит до {fmtMoney(whaleSuggested, 'USD')} за счёт доли «китовой»
+          выгоды, но всё равно оставит инвестору тот же гарантированный процент.
         </p>
       </div>
 
