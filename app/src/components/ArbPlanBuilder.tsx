@@ -202,7 +202,9 @@ type BoosterImpact = {
 };
 
 type PricingControls = {
-  captureSharePct: number;
+  captureShareFloorPct: number;
+  captureShareCeilPct: number;
+  capturePivotNet: number;
   investorBonusPct: number;
   minPrice: number;
   maxPrice: number;
@@ -513,11 +515,13 @@ function computeMomentum(day: number, horizon: number, profile: ScenarioProfile)
 }
 
 const DEFAULT_PRICING: PricingControls = {
-  captureSharePct: 30,
+  captureShareFloorPct: 15,
+  captureShareCeilPct: 55,
+  capturePivotNet: 200,
   investorBonusPct: 20,
   minPrice: 0.5,
   maxPrice: 1_000_000,
-  anchorDeposit: 100
+  anchorDeposit: 150
 };
 
 const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
@@ -574,8 +578,20 @@ function normalizePricingControls(raw?: any): PricingControls {
   const fallback = DEFAULT_PRICING;
   if (!raw || typeof raw !== 'object') return fallback;
 
-  const captureRaw = Number(
-    raw.captureSharePct ?? raw.captureShare ?? raw.projectSharePct ?? fallback.captureSharePct
+  const captureBaseRaw = Number(
+    raw.captureSharePct ?? raw.captureShare ?? raw.projectSharePct ?? NaN
+  );
+  const captureFloorRaw = Number(
+    raw.captureShareFloorPct ??
+      raw.captureShareFloor ??
+      raw.captureShareMinPct ??
+      (Number.isFinite(captureBaseRaw) ? captureBaseRaw : fallback.captureShareFloorPct)
+  );
+  const captureCeilRaw = Number(
+    raw.captureShareCeilPct ??
+      raw.captureShareCeil ??
+      raw.captureShareMaxPct ??
+      (Number.isFinite(captureBaseRaw) ? captureBaseRaw : fallback.captureShareCeilPct)
   );
   const bonusRaw = Number(
     raw.investorBonusPct ?? raw.investorRoiFloorPct ?? fallback.investorBonusPct
@@ -583,17 +599,36 @@ function normalizePricingControls(raw?: any): PricingControls {
   const minPriceRaw = Number(raw.minPrice ?? fallback.minPrice);
   const maxPriceRaw = Number(raw.maxPrice ?? fallback.maxPrice);
   const anchorRaw = Number(raw.anchorDeposit ?? raw.baselinePrincipal ?? fallback.anchorDeposit);
+  const pivotRaw = Number(
+    raw.capturePivotNet ?? raw.capturePivot ?? raw.netPivot ?? fallback.capturePivotNet
+  );
 
-  const captureSharePct = Number.isFinite(captureRaw)
-    ? clamp(captureRaw, 0, 100)
-    : fallback.captureSharePct;
+  let captureShareFloorPct = Number.isFinite(captureFloorRaw)
+    ? clamp(captureFloorRaw, 0, 100)
+    : fallback.captureShareFloorPct;
+  let captureShareCeilPct = Number.isFinite(captureCeilRaw)
+    ? clamp(captureCeilRaw, captureShareFloorPct, 100)
+    : Math.max(captureShareFloorPct, fallback.captureShareCeilPct);
+
+  if (!Number.isFinite(captureFloorRaw) && Number.isFinite(captureCeilRaw)) {
+    captureShareFloorPct = Math.min(captureShareCeilPct, fallback.captureShareFloorPct);
+  }
+  if (!Number.isFinite(captureCeilRaw) && Number.isFinite(captureFloorRaw)) {
+    captureShareCeilPct = Math.max(captureShareFloorPct, fallback.captureShareCeilPct);
+  }
+
   const investorBonusPct = Number.isFinite(bonusRaw) ? Math.max(0, bonusRaw) : fallback.investorBonusPct;
   const minPrice = Number.isFinite(minPriceRaw) ? Math.max(0, minPriceRaw) : fallback.minPrice;
   const maxPriceBase = Number.isFinite(maxPriceRaw) ? Math.max(minPrice, maxPriceRaw) : fallback.maxPrice;
   const anchorDeposit = Number.isFinite(anchorRaw) ? Math.max(0, anchorRaw) : fallback.anchorDeposit;
+  const capturePivotNet = Number.isFinite(pivotRaw)
+    ? Math.max(1, pivotRaw)
+    : Math.max(1, fallback.capturePivotNet);
 
   return {
-    captureSharePct,
+    captureShareFloorPct,
+    captureShareCeilPct,
+    capturePivotNet,
     investorBonusPct,
     minPrice,
     maxPrice: maxPriceBase,
@@ -617,6 +652,17 @@ function boosterEffectShare(booster: Booster) {
   return Math.max(0, booster.effect?.value ?? 0);
 }
 
+function captureShareForNet(netGain: number, controls: PricingControls) {
+  const floor = Math.max(0, controls.captureShareFloorPct / 100);
+  const ceil = Math.max(floor, controls.captureShareCeilPct / 100);
+  const pivot = Math.max(1, controls.capturePivotNet || 1);
+  if (!(netGain > 0)) return floor;
+  const ratio = netGain / pivot;
+  const blend = ratio / (1 + ratio);
+  const share = floor + (ceil - floor) * blend;
+  return clamp(share, floor, ceil);
+}
+
 function programNetGain(amount: number, tariff: Tariff, feeRate: number) {
   const principal = Math.max(0, amount);
   if (principal <= 0) return 0;
@@ -629,7 +675,7 @@ function programNetGain(amount: number, tariff: Tariff, feeRate: number) {
 
 function computeBoosterPriceFromNet(netGain: number, controls: PricingControls) {
   if (!(netGain > 0)) return 0;
-  const captureShare = Math.max(0, controls.captureSharePct / 100);
+  const captureShare = Math.max(0, captureShareForNet(netGain, controls));
   const investorBonusShare = Math.max(0, controls.investorBonusPct / 100);
   const minPrice = Math.max(0, controls.minPrice);
   const maxPrice = Math.max(minPrice, controls.maxPrice);
@@ -1259,7 +1305,10 @@ function runSelfTests() {
     (weekly.durationDays * 24);
   const boosterNet = netGainSmall * boosterShare * coverageWeekly;
   const minBonusShare = DEFAULT_PRICING.investorBonusPct / 100;
-  const captureShare = DEFAULT_PRICING.captureSharePct / 100;
+  const captureShare = captureShareForNet(boosterNet, DEFAULT_PRICING);
+  const captureFloor = DEFAULT_PRICING.captureShareFloorPct / 100;
+  const captureCeil = DEFAULT_PRICING.captureShareCeilPct / 100;
+  const captureHuge = captureShareForNet(boosterNet * 120, DEFAULT_PRICING);
   const netAfterPrice = boosterNet - pricedSmall;
   console.assert(
     pricedSmall <= boosterNet / (1 + minBonusShare) + 1e-6,
@@ -1273,6 +1322,11 @@ function runSelfTests() {
     pricedSmall <= boosterNet * captureShare + 1e-6,
     'price should not превышать захваченную долю чистой прибыли'
   );
+  console.assert(
+    captureShare >= captureFloor - 1e-6 && captureHuge <= captureCeil + 1e-6,
+    'capture share should stay within configured floor/ceiling'
+  );
+  console.assert(captureHuge > captureShare, 'capture share should grow with прибыль');
 
   const blockedBooster: Booster[] = [
     {
@@ -3255,10 +3309,12 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   };
 
   const previewControls = normalizePricingControls(draft);
-  const captureShare = Math.max(0, previewControls.captureSharePct / 100);
-  const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
   const sampleDeposit = Math.max(1, previewControls.anchorDeposit || DEFAULT_PRICING.anchorDeposit);
   const sampleNet = Math.max(1, sampleDeposit * 0.04);
+  const captureShareFloor = Math.max(0, previewControls.captureShareFloorPct / 100);
+  const captureShareCeil = Math.max(captureShareFloor, previewControls.captureShareCeilPct / 100);
+  const captureShare = Math.max(0, captureShareForNet(sampleNet, previewControls));
+  const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
   const samplePrice = computeBoosterPriceFromNet(sampleNet, previewControls);
   const guaranteedBonusValue = samplePrice * bonusShare;
 
@@ -3266,15 +3322,36 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
     <div className="pricing-editor">
       <div className="pricing-editor__grid">
         <label className="field">
-          <span className="field-label">Доля прибыли, которую забирает бустер (%)</span>
+          <span className="field-label">Доля прибыли для новичка (%)</span>
           <input
             type="number"
             min={0}
             max={100}
-            value={draft.captureSharePct}
-            onChange={(e) => update('captureSharePct', Number(e.target.value))}
+            value={draft.captureShareFloorPct}
+            onChange={(e) => update('captureShareFloorPct', Number(e.target.value))}
           />
-          <span className="field-hint">Какую часть чистой прибыли бустер превращает в свою цену.</span>
+          <span className="field-hint">Какая часть чистой прибыли идёт в цену при небольшом доходе.</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Доля прибыли для «китов» (%)</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={draft.captureShareCeilPct}
+            onChange={(e) => update('captureShareCeilPct', Number(e.target.value))}
+          />
+          <span className="field-hint">Максимальная доля прибыли, если бустер покрывает большой портфель.</span>
+        </label>
+        <label className="field">
+          <span className="field-label">Порог чистой прибыли (USD)</span>
+          <input
+            type="number"
+            min={1}
+            value={draft.capturePivotNet}
+            onChange={(e) => update('capturePivotNet', Number(e.target.value))}
+          />
+          <span className="field-hint">Прибыль, после которой доля стремится к максимуму.</span>
         </label>
         <label className="field">
           <span className="field-label">Гарантированный бонус инвестору (%)</span>
@@ -3321,13 +3398,14 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
       <div className="pricing-editor__insight">
         <p>
           При чистой прибыли {fmtMoney(sampleNet, 'USD')} за цикл цена составит примерно{' '}
-          {fmtMoney(samplePrice, 'USD')} (захват {fmtPercent(captureShare, 0)}). Покупатель получит минимум{' '}
+          {fmtMoney(samplePrice, 'USD')} (захват {fmtPercent(captureShare, 0)} из диапазона{' '}
+          {fmtPercent(captureShareFloor, 0)}–{fmtPercent(captureShareCeil, 0)}). Покупатель получит минимум{' '}
           {fmtMoney(guaranteedBonusValue, 'USD')} ({fmtPercent(bonusShare, 0)}) поверх возврата стоимости бустера.
         </p>
         <p className="section-subtitle">
-          Базовая формула: <code>чистая&nbsp;прибыль × доля&nbsp;захвата</code>. Далее цена ограничивается ROI (делением на
-          <code>1 + бонус</code>), минимальной и максимальной планкой — но только если это не лишает инвестора гарантированного
-          дохода.
+          Базовая формула: <code>чистая&nbsp;прибыль × доля&nbsp;захвата</code>. Доля скользит от значения для новичка к максимуму
+          по мере роста прибыли. Далее цена ограничивается ROI (делением на <code>1 + бонус</code>), минимальной и максимальной
+          планкой — но только если это не лишает инвестора гарантированного дохода.
         </p>
       </div>
 

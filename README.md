@@ -50,8 +50,9 @@ After the dependencies are installed, start the development server with `npm run
 - Compact dropdown-based tariff picker with an inline preview (yield band, slot availability, recommended deposit and premium hints)
 - Dropdown picker now allows staging the deposit before adding and surfaces net min/max profit together with entry-fee payback hints
 - Booster deposits now treated as refundable escrow – excluded from project revenue and surfaced in planner/simulation totals
-- Booster pricing управляется единственным параметром «гарантированный бонус»: цена берёт фактическую чистую прибыль
-  портфеля (или опорный депозит, если портфель пустой) и делится на `(1 + бонус)` с учётом min/max порогов
+- Booster pricing использует коридор долей захвата (floor/ceiling) и гарантированный бонус: цена берёт фактическую чистую
+  прибыль портфеля (или опорный депозит, если портфель пустой), плавно наращивает долю проекта при росте прибыли и делится
+  на `(1 + бонус)` с учётом min/max порогов
 - Compressed yield bands to keep daily percentage spreads tight, with min/max corridors reflected across planner analytics
 - Refined glassmorphism-inspired UI with gradient background, pill toggles and softened cards for a contemporary white dashboard look
 - Local persistence of tariff/booster catalogs plus booster pricing and programme premium controls via `localStorage`
@@ -61,10 +62,10 @@ Self-tests covering ROI maths and pricing safeguards execute automatically on lo
 
 ## Booster pricing formula
 
-Расчёт стоимости бустера строится на чистой прибыли портфеля и двух управляемых параметрах: доля прибыли, которую забирает бустер, и гарантированный бонус инвестору.
+Расчёт стоимости бустера строится на чистой прибыли портфеля и двух управляемых параметрах: коридор доли прибыли, которую забирает бустер, и гарантированный бонус инвестору.
 
 1. **Net-прибыль.** Суммируем чистый доход тарифов, на которые распространяется бустер, умножая на процент бустера и долю покрытия по времени. Учтены комиссии проекта и входные взносы программ. Если портфель пустой, используется опорный депозит из настроек и ближайший доступный тариф.
-2. **Доля захвата.** Базовая цена — это `net × captureShare`, где `captureShare` задаётся в настройках (например, 30 %). Так легко повторить табличные расчёты команды.
+2. **Скользящая доля захвата.** Базовая цена — это `net × captureShare(net)`, где `captureShare(net)` плавно растёт от «новичкового» значения к максимуму по мере роста прибыли и достигает потолка около указанного порога (`capturePivotNet`). Небольшие депозиты поэтому платят меньше, а крупные портфели автоматически отдают большую долю выгоды.
 3. **Гарантия инвестору.** Цена дополнительно ограничивается потолком `net / (1 + bonusShare)` — инвестор всегда получает минимум `bonusShare` (например, 20 %) поверх возврата цены бустера. Минимальная и максимальная планки применяются только если они не нарушают это ограничение.
 
-Таким образом цена масштабируется вместе с реальной прибылью портфеля, остаётся выгодной даже при минимальном депозите и повторяет логику внутренних таблиц (чистая прибыль × процент захвата × ROI-ограничение).
+Таким образом цена масштабируется вместе с реальной прибылью портфеля, остаётся выгодной для новичков и одновременно отбирает больше маржи у «китов», повторяя логику внутренних таблиц (чистая прибыль × динамическая доля захвата × ROI-ограничение).
