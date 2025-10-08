@@ -51,8 +51,8 @@ After the dependencies are installed, start the development server with `npm run
 - Dropdown picker now allows staging the deposit before adding and surfaces net min/max profit together with entry-fee payback hints
 - Booster deposits now treated as refundable escrow – excluded from project revenue and surfaced in planner/simulation totals
 - Booster pricing использует коридор долей захвата (floor/ceiling) и гарантированный бонус: цена опирается на прямой бонус
-  по вкладу (`депозит × % бустера × активные дни`), умножает его на `(1 + бонус)` и почти полностью забирает рост у «китов»,
-  оставляя инвестору минимум заданный процент от стоимости даже на базовом депозите
+  по вкладу (`депозит × % бустера × активные дни`) и почти полностью забирает рост у «китов», при этом инвестор всегда
+  получает минимум заданный процент от стоимости даже на базовом депозите
 - Compressed yield bands to keep daily percentage spreads tight, with min/max corridors reflected across planner analytics
 - Refined glassmorphism-inspired UI with gradient background, pill toggles and softened cards for a contemporary white dashboard look
 - Local persistence of tariff/booster catalogs plus booster pricing and programme premium controls via `localStorage`
@@ -65,7 +65,7 @@ Self-tests covering ROI maths and pricing safeguards execute automatically on lo
 Расчёт стоимости бустера строится на чистой прибыли портфеля и двух управляемых параметрах: коридор доли прибыли, которую забирает бустер, и гарантированный бонус инвестору.
 
 1. **Базовый бонус.** Для каждого тарифа считаем бонус, который получает инвестор: `депозит × % бустера × активные дни`. Заблокированные тарифы игнорируются. Если портфель пустой, берём опорный депозит из настроек и ближайший доступный тариф.
-2. **Скользящая доля захвата.** Чтобы соблюсти гарантированный бонус, базовый бонус умножается на `(1 + bonusShare)` и передаётся в `captureShare(net)`, которая плавно растёт от floor к ceiling. При floor ≥ 83 % итоговая цена почти совпадает с базовым бонусом, но всё ещё увеличивается вместе с портфелем.
+2. **Скользящая доля захвата.** Полученную чистую прибыль передаём в `captureShare(net)`, которая плавно растёт от floor к ceiling. При floor ≥ 83 % итоговая цена почти совпадает с бонусом, но всё ещё масштабируется вместе с портфелем.
 3. **Гарантия инвестору.** Цена ограничена `net / (1 + bonusShare)`, поэтому инвестор всегда забирает минимум `bonusShare` (например, 20 %) от стоимости даже на минимальном депозите. Минимальные/максимальные пороги срабатывают только если не нарушают это условие.
 
 Таким образом цена масштабируется вместе с реальной прибылью портфеля, остаётся выгодной для новичков и одновременно отбирает больше маржи у «китов», повторяя логику внутренних таблиц (чистая прибыль × динамическая доля захвата × ROI-ограничение).

@@ -775,9 +775,7 @@ function smartPriceBoostersDyn(
     const fallbackNet = Math.max(0, fallbackNetGain(booster));
 
     const netBase = portfolioNet > 0 ? portfolioNet : fallbackNet;
-    const bonusShare = Math.max(0, pricing.investorBonusPct / 100);
-    const netForPricing = netBase * (1 + bonusShare);
-    const rawPrice = computeBoosterPriceFromNet(netForPricing, pricing);
+    const rawPrice = computeBoosterPriceFromNet(netBase, pricing);
     const finalPrice = Number.isFinite(rawPrice) ? rawPrice : 0;
 
     return { ...booster, price: parseFloat(finalPrice.toFixed(2)) };
@@ -1336,7 +1334,7 @@ function runSelfTests() {
   const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
   const boosterNet = boosterBonusNet(100, testBooster[0], weekly);
   const minBonusShare = DEFAULT_PRICING.investorBonusPct / 100;
-  const pricingNet = boosterNet * (1 + minBonusShare);
+  const pricingNet = boosterNet;
   const captureShare = captureShareForNet(pricingNet, DEFAULT_PRICING);
   const captureFloor = DEFAULT_PRICING.captureShareFloorPct / 100;
   const captureCeil = DEFAULT_PRICING.captureShareCeilPct / 100;
