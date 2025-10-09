@@ -316,6 +316,18 @@ const INIT_TARIFFS: Tariff[] = [
 
 const BASE_BOOSTERS: Booster[] = [
   {
+    id: 'boost1000_72',
+    name: '+1000% ×72ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 10 },
+    durationHours: 72,
+    price: 5,
+    minLevel: 1,
+    reqSub: null,
+    blockedTariffs: [],
+    limitPerPortfolio: 1
+  },
+  {
     id: 'boost200_24',
     name: '+200% ×24ч',
     scope: 'account',
@@ -575,7 +587,7 @@ const MIN_BOOSTER_PRICE = 0.5;
 const MAX_BOOSTER_PRICE = 1_000_000;
 
 const DEFAULT_PRICING: PricingControls = {
-  investorBonusPct: 25
+  investorBonusPct: 20
 };
 
 const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
@@ -768,7 +780,13 @@ function smartPriceBoostersDyn(
   };
 
   const fallbackNetGain = (booster: Booster) => {
+    const boosterHours = Math.max(0, booster.durationHours || 0);
     for (const tariff of sortedByMin) {
+      const planHours = Math.max(0, tariff.durationDays * 24);
+      // Если тариф короче, чем активность бустера, пропускаем его, чтобы базовая цена
+      // считалась по плану, способному раскрыть усиление полностью.
+      if (boosterHours > 0 && planHours > 0 && planHours < boosterHours) continue;
+
       const principal = Math.max(tariff.baseMin, tariff.recommendedPrincipal ?? tariff.baseMin);
       const gain = netGainFor(booster, principal, tariff);
       if (gain > 0) return gain;
