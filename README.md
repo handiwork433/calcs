@@ -32,7 +32,7 @@ After the dependencies are installed, start the development server with `npm run
 ## Key capabilities
 
 - Dynamic booster pricing that increases with portfolio exposure and respects blocked tariffs
-- Configurable booster pricing with гарантированным бонусом инвестору: цена строится напрямую от чистой прибыли портфеля и гарантирует минимум заданный процент прибыли от стоимости бустера даже при минимальном депозите
+- Configurable booster pricing with гарантированным бонусом инвестору: цена строится напрямую от чистой прибыли портфеля (усиленной табличным коэффициентом ×2) и гарантирует минимум заданный процент прибыли от стоимости бустера даже при минимальном депозите
 - Minimal white dashboard with capital, lift and yield stats surfaced in real time, including per-day/project revenue splits
 - Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
@@ -62,8 +62,9 @@ Self-tests covering ROI maths and pricing safeguards execute automatically on lo
 
 Расчёт стоимости бустера теперь максимально прозрачен и основан только на гарантированном ROI.
 
-1. **Чистая прибавка прибыли.** Для каждого тарифа считаем дополнительный заработок от бустера: `депозит × ставка тарифа × длительность × % бустера × покрытие`
-   и вычитаем комиссию проекта. Заблокированные тарифы пропускаются. Если портфель пустой, берём базовый депозит тарифа.
+1. **Чистая прибавка прибыли.** Для каждого тарифа считаем дополнительный заработок от бустера: `депозит × ставка тарифа × длительность × % бустера × 2`
+   и вычитаем комиссию проекта. Такой множитель повторяет табличную модель: бустер усиливает весь цикл программы, а не только часы активации.
+   Заблокированные тарифы пропускаются. Если портфель пустой, берём базовый депозит тарифа.
 2. **Суммирование по портфелю.** Складываем чистую прибавку по всем активным тарифам. Если активных тарифов нет, используем первый доступный тариф с его базовым входом.
 3. **Цена с гарантией.** Финальная стоимость = `net / (1 + bonusShare)` (где `bonusShare` — настраиваемый ROI в процентах). Цена дополнительно ограничена снизу 0.5 $, но никогда не превышает саму чистую прибыль.
 

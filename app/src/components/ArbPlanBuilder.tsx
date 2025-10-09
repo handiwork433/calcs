@@ -514,6 +514,8 @@ function computeMomentum(day: number, horizon: number, profile: ScenarioProfile)
 
 const MIN_BOOSTER_PRICE = 0.5;
 const MAX_BOOSTER_PRICE = 1_000_000;
+// Множитель повторяет табличную модель: усиливаем весь цикл программы, а не только часы работы бустера.
+const BOOSTER_NET_MULTIPLIER = 2;
 
 const DEFAULT_PRICING: PricingControls = {
   investorBonusPct: 20
@@ -638,16 +640,16 @@ function boosterBonusNet(
   if (!(principal > 0)) return 0;
   const effectShare = boosterEffectShare(booster);
   if (!(effectShare > 0)) return 0;
-  const activeDays = boosterActiveDays(booster, tariff);
-  if (!(activeDays > 0)) return 0;
-  const safeFee = clamp(feeRate, 0, 1);
-  const totalDays = Math.max(activeDays, 0);
+  const activeHours = Math.max(0, booster.durationHours || 0);
+  if (!(activeHours > 0)) return 0;
   const planDays = Math.max(tariff.durationDays, 0);
-  const coverage = planDays > 0 ? clamp(totalDays / planDays, 0, 1) : 0;
-  if (!(coverage > 0)) return 0;
+  if (!(planDays > 0)) return 0;
+  const safeFee = clamp(feeRate, 0, 1);
+
   const baseGross = principal * tariffRate(tariff) * planDays;
-  const grossBonus = baseGross * effectShare * coverage;
+  const grossBonus = baseGross * effectShare * BOOSTER_NET_MULTIPLIER;
   const fee = grossBonus * safeFee;
+
   return Math.max(0, grossBonus - fee);
 }
 
@@ -3296,7 +3298,7 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   const sampleEffect = 0.3;
   const sampleFee = 0.2;
   const baseGross = sampleDeposit * sampleRate * sampleDuration;
-  const sampleNet = Math.max(0, baseGross * sampleEffect * (1 - sampleFee));
+  const sampleNet = Math.max(0, baseGross * sampleEffect * (1 - sampleFee) * BOOSTER_NET_MULTIPLIER);
   const samplePrice = computeBoosterPriceFromNet(sampleNet, previewControls);
   const guaranteedBonusValue = samplePrice * bonusShare;
 
@@ -3324,8 +3326,9 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
           стоимости бустера.
         </p>
         <p className="section-subtitle">
-          Формула расчёта проста: берём чистую прибавку прибыли от бустера и делим её на <code>1 + бонус</code>. Проект
-          получает свою долю, а инвестор гарантированно остаётся в плюсе даже на минимальном депозите.
+          Формула расчёта проста: берём чистую прибавку прибыли от бустера, умножаем на табличный коэффициент ×2 и делим на
+          <code>1 + бонус</code>. Проект получает свою долю, а инвестор гарантированно остаётся в плюсе даже на минимальном
+          депозите.
         </p>
       </div>
 
