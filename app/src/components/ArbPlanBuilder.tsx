@@ -315,19 +315,78 @@ const INIT_TARIFFS: Tariff[] = [
 ];
 
 const BASE_BOOSTERS: Booster[] = [
-  { id: 'b5_24h', name: '+5% x24h', scope: 'account', effect: { type: 'mult', value: 0.05 }, durationHours: 24, price: 1.2, minLevel: 1, reqSub: null, blockedTariffs: [], limitPerPortfolio: 5 },
-  { id: 'b10_24h', name: '+10% x24h', scope: 'account', effect: { type: 'mult', value: 0.1 }, durationHours: 24, price: 2.5, minLevel: 2, reqSub: null, blockedTariffs: [], limitPerPortfolio: 5 },
-  { id: 'b15_24h', name: '+15% x24h', scope: 'account', effect: { type: 'mult', value: 0.15 }, durationHours: 24, price: 4, minLevel: 3, reqSub: null, blockedTariffs: [], limitPerPortfolio: 4 },
-  { id: 'b8_12h', name: '+8% x12h', scope: 'account', effect: { type: 'mult', value: 0.08 }, durationHours: 12, price: 1, minLevel: 1, reqSub: null, blockedTariffs: [], limitPerPortfolio: 6 },
-  { id: 'b100_24h', name: '+100% x24h', scope: 'account', effect: { type: 'mult', value: 1 }, durationHours: 24, price: 0.9, minLevel: 3, reqSub: null, blockedTariffs: [], limitPerPortfolio: 1 },
-  { id: 'b200_24h', name: '+200% x24h', scope: 'account', effect: { type: 'mult', value: 2 }, durationHours: 24, price: 1.8, minLevel: 5, reqSub: 'silver', blockedTariffs: ['t_start'], limitPerPortfolio: 1 },
-  { id: 'b300_24h', name: '+300% x24h', scope: 'account', effect: { type: 'mult', value: 3 }, durationHours: 24, price: 3, minLevel: 7, reqSub: 'gold', blockedTariffs: ['t_start', 't_express3'], limitPerPortfolio: 1 },
-  { id: 'b400_48h', name: '+400% x48h', scope: 'account', effect: { type: 'mult', value: 4 }, durationHours: 48, price: 6, minLevel: 10, reqSub: 'platinum', blockedTariffs: ['t_start', 't_express3', 't_weekly_a'], limitPerPortfolio: 1 },
-  { id: 'b30_24h', name: '+30% x24h', scope: 'account', effect: { type: 'mult', value: 0.3 }, durationHours: 24, price: 35, minLevel: 14, reqSub: 'elite', blockedTariffs: ['t_start', 't_express3', 't_weekly_a', 't_weekly_b'], limitPerPortfolio: 1 },
-  { id: 'b40_24h', name: '+40% x24h', scope: 'account', effect: { type: 'mult', value: 0.4 }, durationHours: 24, price: 55, minLevel: 16, reqSub: 'ultra', blockedTariffs: ['t_start', 't_express3', 't_weekly_a', 't_weekly_b', 't_liq_pool'], limitPerPortfolio: 1 },
-  { id: 'b5_10h', name: '+5% x10h', scope: 'account', effect: { type: 'mult', value: 0.05 }, durationHours: 10, price: 3.5, minLevel: 4, reqSub: 'silver', blockedTariffs: [], limitPerPortfolio: 1 },
-  { id: 'b8_24h', name: '+8% x24h', scope: 'account', effect: { type: 'mult', value: 0.08 }, durationHours: 24, price: 8, minLevel: 7, reqSub: 'gold', blockedTariffs: [], limitPerPortfolio: 1 },
-  { id: 'b12_24h', name: '+12% x24h', scope: 'account', effect: { type: 'mult', value: 0.12 }, durationHours: 24, price: 12, minLevel: 12, reqSub: 'pro', blockedTariffs: [], limitPerPortfolio: 1 }
+  {
+    id: 'boost200_24',
+    name: '+200% ×24ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 2 },
+    durationHours: 24,
+    price: 3,
+    minLevel: 1,
+    reqSub: null,
+    blockedTariffs: [],
+    limitPerPortfolio: 2
+  },
+  {
+    id: 'boost350_24',
+    name: '+350% ×24ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 3.5 },
+    durationHours: 24,
+    price: 4.5,
+    minLevel: 2,
+    reqSub: 'bronze',
+    blockedTariffs: [],
+    limitPerPortfolio: 2
+  },
+  {
+    id: 'boost400_24',
+    name: '+400% ×24ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 4 },
+    durationHours: 24,
+    price: 5,
+    minLevel: 3,
+    reqSub: null,
+    blockedTariffs: ['t_start'],
+    limitPerPortfolio: 1
+  },
+  {
+    id: 'boost450_48',
+    name: '+450% ×48ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 4.5 },
+    durationHours: 48,
+    price: 8,
+    minLevel: 4,
+    reqSub: 'silver',
+    blockedTariffs: ['t_start', 't_express3'],
+    limitPerPortfolio: 1
+  },
+  {
+    id: 'boost600_48',
+    name: '+600% ×48ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 6 },
+    durationHours: 48,
+    price: 12,
+    minLevel: 6,
+    reqSub: 'gold',
+    blockedTariffs: ['t_start', 't_express3', 't_weekly_a'],
+    limitPerPortfolio: 1
+  },
+  {
+    id: 'boost800_72',
+    name: '+800% ×72ч',
+    scope: 'account',
+    effect: { type: 'mult', value: 8 },
+    durationHours: 72,
+    price: 18,
+    minLevel: 8,
+    reqSub: 'platinum',
+    blockedTariffs: ['t_start', 't_express3', 't_weekly_a', 't_weekly_b'],
+    limitPerPortfolio: 1
+  }
 ];
 
 const SUB_RANKS = new Map(SUBSCRIPTIONS.map((s, i) => [s.id, i]));
@@ -514,11 +573,9 @@ function computeMomentum(day: number, horizon: number, profile: ScenarioProfile)
 
 const MIN_BOOSTER_PRICE = 0.5;
 const MAX_BOOSTER_PRICE = 1_000_000;
-// Множитель повторяет табличную модель: усиливаем весь цикл программы, а не только часы работы бустера.
-const BOOSTER_NET_MULTIPLIER = 2;
 
 const DEFAULT_PRICING: PricingControls = {
-  investorBonusPct: 20
+  investorBonusPct: 25
 };
 
 const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
@@ -633,24 +690,27 @@ function boosterBonusNet(
   amount: number,
   booster: Booster,
   tariff: Tariff,
-  feeRate = 0,
+  _feeRate = 0,
   _controls: PricingControls = DEFAULT_PRICING
 ) {
   const principal = Math.max(0, amount);
   if (!(principal > 0)) return 0;
   const effectShare = boosterEffectShare(booster);
   if (!(effectShare > 0)) return 0;
-  const activeHours = Math.max(0, booster.durationHours || 0);
+  const planHours = Math.max(0, tariff.durationDays * 24);
+  if (!(planHours > 0)) return 0;
+  const activeHours = Math.min(Math.max(0, booster.durationHours || 0), planHours);
   if (!(activeHours > 0)) return 0;
-  const planDays = Math.max(tariff.durationDays, 0);
-  if (!(planDays > 0)) return 0;
-  const safeFee = clamp(feeRate, 0, 1);
 
-  const baseGross = principal * tariffRate(tariff) * planDays;
-  const grossBonus = baseGross * effectShare * BOOSTER_NET_MULTIPLIER;
-  const fee = grossBonus * safeFee;
+  const coverageDays = activeHours / 24;
+  // Цена строится от дневного профита тарифа: чем больше дневная прибыль и % бустера, тем выше итоговая стоимость.
+  const dailyProfit = principal * tariffRate(tariff);
+  if (!(dailyProfit > 0)) return 0;
 
-  return Math.max(0, grossBonus - fee);
+  const bonusPerDay = dailyProfit * effectShare;
+  const netGain = bonusPerDay * coverageDays;
+
+  return Math.max(0, netGain);
 }
 
 function computeBoosterPriceFromNet(netGain: number, controls: PricingControls) {
@@ -3293,12 +3353,11 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
   const previewControls = normalizePricingControls(draft);
   const bonusShare = Math.max(0, previewControls.investorBonusPct / 100);
   const sampleDeposit = 100;
-  const sampleRate = 0.006;
-  const sampleDuration = 7;
-  const sampleEffect = 0.3;
-  const sampleFee = 0.2;
-  const baseGross = sampleDeposit * sampleRate * sampleDuration;
-  const sampleNet = Math.max(0, baseGross * sampleEffect * (1 - sampleFee) * BOOSTER_NET_MULTIPLIER);
+  const sampleRate = 0.01;
+  const sampleEffect = 4;
+  const sampleCoverageDays = 1;
+  const baseDaily = sampleDeposit * sampleRate;
+  const sampleNet = Math.max(0, baseDaily * sampleEffect * sampleCoverageDays);
   const samplePrice = computeBoosterPriceFromNet(sampleNet, previewControls);
   const guaranteedBonusValue = samplePrice * bonusShare;
 
@@ -3321,14 +3380,19 @@ function PricingEditor({ pricing, setPricing }: PricingEditorProps) {
 
       <div className="pricing-editor__insight">
         <p>
-          При чистой прибыли {fmtMoney(sampleNet, 'USD')} за цикл цена составит примерно {fmtMoney(samplePrice, 'USD')}.
-          Покупатель получит минимум {fmtMoney(guaranteedBonusValue, 'USD')} ({fmtPercent(bonusShare, 0)}) поверх возврата
-          стоимости бустера.
+          При дневном профите {fmtMoney(baseDaily, 'USD')} и бустере на {sampleCoverageDays} сут. c усилением {fmtPercent(
+            sampleEffect,
+            0
+          )}
+          чистая прибавка составит {fmtMoney(sampleNet, 'USD')}. Цена будет около {fmtMoney(samplePrice, 'USD')}, а покупатель
+          гарантированно вернёт стоимость бустера и получит минимум {fmtMoney(guaranteedBonusValue, 'USD')} ({fmtPercent(
+            bonusShare,
+            0
+          )}) сверху.
         </p>
         <p className="section-subtitle">
-          Формула расчёта проста: берём чистую прибавку прибыли от бустера, умножаем на табличный коэффициент ×2 и делим на
-          <code>1 + бонус</code>. Проект получает свою долю, а инвестор гарантированно остаётся в плюсе даже на минимальном
-          депозите.
+          Формула простая: дневной профит × % бустера × активные дни и делим на <code>1 + бонус</code>. Так цена напрямую
+          зависит от того, сколько денег приносит тариф, и остаётся выгодной даже на минимальных депозитах.
         </p>
       </div>
 
