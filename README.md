@@ -32,7 +32,7 @@ After the dependencies are installed, start the development server with `npm run
 ## Key capabilities
 
 - Dynamic booster pricing that increases with portfolio exposure and respects blocked tariffs
-- Configurable booster pricing with гарантированным бонусом инвестору: новая формула всегда оставляет минимум заданный процент прибыли от цены даже при минимальном депозите
+- Configurable booster pricing with гарантированным бонусом инвестору: цена строится напрямую от чистой прибыли портфеля и гарантирует минимум заданный процент прибыли от стоимости бустера даже при минимальном депозите
 - Minimal white dashboard with capital, lift and yield stats surfaced in real time, including per-day/project revenue splits
 - Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
@@ -50,9 +50,7 @@ After the dependencies are installed, start the development server with `npm run
 - Compact dropdown-based tariff picker with an inline preview (yield band, slot availability, recommended deposit and premium hints)
 - Dropdown picker now allows staging the deposit before adding and surfaces net min/max profit together with entry-fee payback hints
 - Booster deposits now treated as refundable escrow – excluded from project revenue and surfaced in planner/simulation totals
-- Booster pricing использует коридор долей захвата (floor/ceiling) и гарантированный бонус: цена строится из бонуса по
-  вкладу (множитель депозитного бонуса) и бонуса от доходности тарифа, после чего масштабируется долей захвата; инвестор
-  всегда получает минимум заданный процент от стоимости даже на базовом депозите
+- Booster pricing теперь опирается только на гарантированный ROI: берём чистую прибыль, делим на `1 + бонус`, добавляем нижний порог 0.5 $ и гарантируем, что покупатель остаётся в плюсе на выбранный процент
 - Compressed yield bands to keep daily percentage spreads tight, with min/max corridors reflected across planner analytics
 - Refined glassmorphism-inspired UI with gradient background, pill toggles and softened cards for a contemporary white dashboard look
 - Local persistence of tariff/booster catalogs plus booster pricing and programme premium controls via `localStorage`
@@ -62,14 +60,11 @@ Self-tests covering ROI maths and pricing safeguards execute automatically on lo
 
 ## Booster pricing formula
 
-Расчёт стоимости бустера опирается на чистую прибыль портфеля и три управляемых параметра: коридор доли прибыли, множители депозитного/доходного бонуса и гарантированный бонус инвестору.
+Расчёт стоимости бустера теперь максимально прозрачен и основан только на гарантированном ROI.
 
-1. **Бонус от депозита и доходности.** Для каждого тарифа суммируем два вклада: `депозит × % бустера × активные дни × depositGainMultiplier`
-   и `депозит × дневная ставка × % бустера × активные дни × profitGainMultiplier`. Из суммы вычитаем комиссию подписки. Заблокированные тарифы
-   игнорируются. Если портфель пустой, используется опорный депозит из настроек.
-2. **Скользящая доля захвата.** Полученную чистую прибыль передаём в `captureShare(net)`, которая плавно растёт от floor к ceiling. При высоком floor
-   цена почти совпадает с рассчитанным бонусом, но всё ещё масштабируется вместе с портфелем и усиливает «китов» за счёт верхней границы.
-3. **Гарантия инвестору.** Цена ограничена `net / (1 + bonusShare)`, поэтому инвестор всегда забирает минимум `bonusShare` (например, 20 %) от стоимости
-   даже на минимальном депозите. Минимальные/максимальные пороги срабатывают только если не нарушают это условие.
+1. **Чистая прибавка прибыли.** Для каждого тарифа считаем дополнительный заработок от бустера: `депозит × ставка тарифа × длительность × % бустера × покрытие`
+   и вычитаем комиссию проекта. Заблокированные тарифы пропускаются. Если портфель пустой, берём базовый депозит тарифа.
+2. **Суммирование по портфелю.** Складываем чистую прибавку по всем активным тарифам. Если активных тарифов нет, используем первый доступный тариф с его базовым входом.
+3. **Цена с гарантией.** Финальная стоимость = `net / (1 + bonusShare)` (где `bonusShare` — настраиваемый ROI в процентах). Цена дополнительно ограничена снизу 0.5 $, но никогда не превышает саму чистую прибыль.
 
-Таким образом цена масштабируется вместе с реальной прибылью портфеля, остаётся выгодной для новичков и одновременно отбирает больше маржи у «китов», повторяя логику внутренних таблиц (бонус от депозита + бонус от доходности) × динамическая доля захвата × ROI-ограничение.
+Такой подход полностью повторяет табличную модель: даже при депозите $100 покупатель окупает бустер и получает сверху минимальный бонус, а крупные портфели платят больше, потому что их чистая прибыль выше.
