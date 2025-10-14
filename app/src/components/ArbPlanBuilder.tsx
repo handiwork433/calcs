@@ -277,6 +277,7 @@ const SUBSCRIPTIONS: Subscription[] = [
   { id: 'silver', name: 'Silver', fee: 0.16, price: 19, minLevel: 2 },
   { id: 'gold', name: 'Gold', fee: 0.14, price: 29, minLevel: 3 },
   { id: 'platinum', name: 'Platinum', fee: 0.12, price: 49, minLevel: 5 },
+  { id: 'vip', name: 'VIP', fee: 0.11, price: 59, minLevel: 6 },
   { id: 'pro', name: 'PRO', fee: 0.1, price: 79, minLevel: 7 },
   { id: 'elite', name: 'Elite', fee: 0.08, price: 109, minLevel: 10 },
   { id: 'ultra', name: 'Ultra', fee: 0.06, price: 149, minLevel: 12 },
@@ -284,34 +285,22 @@ const SUBSCRIPTIONS: Subscription[] = [
 ];
 
 const INIT_TARIFFS: Tariff[] = [
-  createTariff({ id: 't_start', name: 'Start Day', durationDays: 1, rate: 0.003, rateRange: [0.0015, 0.0042], minLevel: 1, baseMin: 20, baseMax: 500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_weekly_a', name: 'Weekly A', durationDays: 7, rate: 0.004, rateRange: [0.0028, 0.0055], minLevel: 1, baseMin: 50, baseMax: 1500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_weekly_b', name: 'Weekly B', durationDays: 7, rate: 0.005, rateRange: [0.0035, 0.0068], minLevel: 3, baseMin: 100, baseMax: 2500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_flex14', name: 'Flex 14', durationDays: 14, rate: 0.006, rateRange: [0.0042, 0.0084], minLevel: 4, baseMin: 150, baseMax: 4000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_month_std', name: 'Month Std', durationDays: 30, rate: 0.0065, rateRange: [0.0045, 0.009], minLevel: 5, baseMin: 200, baseMax: 6000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_month_plus', name: 'Month Plus', durationDays: 30, rate: 0.0075, rateRange: [0.005, 0.0105], minLevel: 7, baseMin: 300, baseMax: 8000, reqSub: 'gold', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_quarter', name: 'Quarter 90', durationDays: 90, rate: 0.008, rateRange: [0.0052, 0.011], minLevel: 10, baseMin: 500, baseMax: 15000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_liq_pool', name: 'Liquidity Pool', durationDays: 21, rate: 0.0068, rateRange: [0.004, 0.0094], minLevel: 6, baseMin: 500, baseMax: 10000, reqSub: null, isLimited: true, capSlots: 80, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_express3', name: 'Express 3d', durationDays: 3, rate: 0.007, rateRange: [0.0045, 0.0105], minLevel: 2, baseMin: 50, baseMax: 1200, reqSub: null, isLimited: true, capSlots: 200, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_mm30', name: 'Market Making 30', durationDays: 30, rate: 0.0092, rateRange: [0.006, 0.0125], minLevel: 12, baseMin: 1000, baseMax: 20000, reqSub: 'pro', isLimited: true, capSlots: 40, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_global60', name: 'Global 60', durationDays: 60, rate: 0.0098, rateRange: [0.0065, 0.0135], minLevel: 14, baseMin: 2000, baseMax: 30000, reqSub: 'elite', isLimited: true, capSlots: 30, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_prime45', name: 'Prime 45', durationDays: 45, rate: 0.0102, rateRange: [0.007, 0.014], minLevel: 16, baseMin: 2500, baseMax: 35000, reqSub: 'ultra', isLimited: true, capSlots: 24, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_flash7', name: 'Flash Seven', durationDays: 7, rate: 0.0115, rateRange: [0.007, 0.016], minLevel: 8, baseMin: 400, baseMax: 4500, reqSub: 'gold', isLimited: true, capSlots: 60, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_dual21', name: 'Dual 21', durationDays: 21, rate: 0.0074, rateRange: [0.0048, 0.0104], minLevel: 9, baseMin: 600, baseMax: 9000, reqSub: 'platinum', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_swing28', name: 'Swing 28', durationDays: 28, rate: 0.0085, rateRange: [0.0055, 0.0115], minLevel: 11, baseMin: 800, baseMax: 12000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_spot18', name: 'Spot 18', durationDays: 18, rate: 0.008, rateRange: [0.005, 0.011], minLevel: 6, baseMin: 350, baseMax: 5500, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_meta60', name: 'Meta 60', durationDays: 60, rate: 0.0108, rateRange: [0.0068, 0.0148], minLevel: 18, baseMin: 5000, baseMax: 42000, reqSub: 'infinity', isLimited: true, capSlots: 20, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_spread10', name: 'Spread 10', durationDays: 10, rate: 0.0069, rateRange: [0.0045, 0.0098], minLevel: 4, baseMin: 200, baseMax: 3800, reqSub: null, isLimited: true, capSlots: 110, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_quant90', name: 'Quant 90', durationDays: 90, rate: 0.0101, rateRange: [0.0065, 0.0142], minLevel: 17, baseMin: 3200, baseMax: 38000, reqSub: 'elite', isLimited: true, capSlots: 28, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_event5', name: 'Event 5', durationDays: 5, rate: 0.0125, rateRange: [0.007, 0.0185], minLevel: 7, baseMin: 500, baseMax: 5000, reqSub: null, isLimited: true, capSlots: 20, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_ai45', name: 'AI 45', durationDays: 45, rate: 0.0115, rateRange: [0.0072, 0.0158], minLevel: 15, baseMin: 2500, baseMax: 28000, reqSub: 'pro', isLimited: true, capSlots: 32, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_yield75', name: 'Yield 75', durationDays: 75, rate: 0.0091, rateRange: [0.006, 0.0124], minLevel: 13, baseMin: 1800, baseMax: 25000, reqSub: 'elite', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 'p_premium28', name: 'Premium Access 28', durationDays: 28, rate: 0.0095, rateRange: [0.006, 0.0132], minLevel: 1, baseMin: 400, baseMax: 6000, reqSub: null, isLimited: true, capSlots: 75, category: 'program', access: 'open', entryFee: 180, recommendedPrincipal: 1800, payoutMode: 'locked' }),
-  createTariff({ id: 'p_quant_elite30', name: 'Quant Elite 30', durationDays: 30, rate: 0.012, rateRange: [0.008, 0.0175], minLevel: 1, baseMin: 600, baseMax: 9000, reqSub: 'silver', isLimited: true, capSlots: 60, category: 'program', access: 'open', entryFee: 260, recommendedPrincipal: 2500, payoutMode: 'locked' }),
-  createTariff({ id: 'p_launch_vip14', name: 'Launch VIP 14', durationDays: 14, rate: 0.0135, rateRange: [0.0085, 0.0195], minLevel: 1, baseMin: 450, baseMax: 6500, reqSub: null, isLimited: false, capSlots: null, category: 'program', access: 'open', entryFee: 140, recommendedPrincipal: 1500, payoutMode: 'stream' }),
-  createTariff({ id: 'p_titan45', name: 'Titan 45', durationDays: 45, rate: 0.0118, rateRange: [0.0075, 0.0168], minLevel: 1, baseMin: 900, baseMax: 14000, reqSub: 'gold', isLimited: true, capSlots: 45, category: 'program', access: 'open', entryFee: 360, recommendedPrincipal: 3600, payoutMode: 'locked' }),
-  createTariff({ id: 'p_zen60', name: 'Zenith 60', durationDays: 60, rate: 0.0108, rateRange: [0.007, 0.0152], minLevel: 1, baseMin: 1200, baseMax: 20000, reqSub: 'gold', isLimited: true, capSlots: 40, category: 'program', access: 'open', entryFee: 520, recommendedPrincipal: 5200, payoutMode: 'locked' }),
-  createTariff({ id: 'p_founders90', name: 'Founders 90', durationDays: 90, rate: 0.0125, rateRange: [0.008, 0.0185], minLevel: 1, baseMin: 2000, baseMax: 26000, reqSub: 'elite', isLimited: true, capSlots: 24, category: 'program', access: 'open', entryFee: 900, recommendedPrincipal: 10000, payoutMode: 'locked' })
+  createTariff({ id: 't_stable_ton', name: 'StableTON', durationDays: 3, rate: 0.0035, rateRange: [0.003, 0.004], minLevel: 1, baseMin: 50, baseMax: 500, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_btc_classic', name: 'BTC Classic', durationDays: 5, rate: 0.0045, rateRange: [0.004, 0.005], minLevel: 2, baseMin: 100, baseMax: 1000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_eth_pulse', name: 'ETH Pulse', durationDays: 7, rate: 0.0068, rateRange: [0.006, 0.0075], minLevel: 2, baseMin: 150, baseMax: 1500, reqSub: 'silver', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_altsafe_pack', name: 'AltSafe Pack', durationDays: 1, rate: 0.01, rateRange: [0.009, 0.011], minLevel: 1, baseMin: 250, baseMax: 2000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_usdt_premium', name: 'USDT Premium', durationDays: 5, rate: 0.007, rateRange: [0.006, 0.008], minLevel: 2, baseMin: 200, baseMax: 3000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_defi_basket', name: 'DeFi Basket', durationDays: 14, rate: 0.01, rateRange: [0.008, 0.012], minLevel: 3, baseMin: 500, baseMax: 5000, reqSub: 'silver', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_nft_flow', name: 'NFT Flow', durationDays: 21, rate: 0.011, rateRange: [0.009, 0.013], minLevel: 3, baseMin: 300, baseMax: 7000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_asia_premium', name: 'Asia Premium', durationDays: 30, rate: 0.0125, rateRange: [0.011, 0.014], minLevel: 4, baseMin: 100, baseMax: 10000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_futures_mix', name: 'Futures Mix', durationDays: 10, rate: 0.0115, rateRange: [0.0095, 0.0135], minLevel: 3, baseMin: 50, baseMax: 5000, reqSub: 'silver', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
+  createTariff({ id: 't_gas_wars_eth', name: 'Gas Wars ETH', durationDays: 5, rate: 0.0175, rateRange: [0.015, 0.02], minLevel: 3, baseMin: 10, baseMax: 500, reqSub: null, isLimited: true, capSlots: 120, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
+  createTariff({ id: 'p_exotic_x', name: 'Exotic X', durationDays: 21, rate: 0.0215, rateRange: [0.02, 0.023], minLevel: 5, baseMin: 1000, baseMax: 20000, reqSub: 'platinum', isLimited: true, capSlots: null, category: 'program', access: 'open', entryFee: 200, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_flash_24h', name: 'Flash 24h', durationDays: 1, rate: 0.0135, rateRange: [0.012, 0.015], minLevel: 3, baseMin: 100, baseMax: 2000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
+  createTariff({ id: 't_volatility_btc', name: 'Volatility BTC', durationDays: 3, rate: 0.02, rateRange: [0.015, 0.025], minLevel: 4, baseMin: 50, baseMax: 4000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
+  createTariff({ id: 't_pump_tracker', name: 'Pump Tracker', durationDays: 15, rate: 0.019, rateRange: [0.014, 0.024], minLevel: 2, baseMin: 50, baseMax: 5000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 'p_vip_hidden_pool', name: 'VIP Hidden Pool', durationDays: 30, rate: 0.0215, rateRange: [0.018, 0.025], minLevel: 6, baseMin: 2000, baseMax: 30000, reqSub: 'vip', isLimited: true, capSlots: null, category: 'program', access: 'open', entryFee: 400, recommendedPrincipal: null, payoutMode: 'stream' }),
+  createTariff({ id: 't_altseason_surge', name: 'AltSeason Surge', durationDays: 10, rate: 0.0185, rateRange: [0.017, 0.02], minLevel: 3, baseMin: 100, baseMax: 5000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' })
 ];
 
 const BASE_BOOSTERS: Booster[] = [
@@ -360,7 +349,7 @@ const BASE_BOOSTERS: Booster[] = [
     price: 5,
     minLevel: 3,
     reqSub: null,
-    blockedTariffs: ['t_start'],
+    blockedTariffs: ['t_stable_ton'],
     limitPerPortfolio: 1
   },
   {
@@ -372,7 +361,7 @@ const BASE_BOOSTERS: Booster[] = [
     price: 8,
     minLevel: 4,
     reqSub: 'silver',
-    blockedTariffs: ['t_start', 't_express3'],
+    blockedTariffs: ['t_stable_ton', 't_flash_24h'],
     limitPerPortfolio: 1
   },
   {
@@ -384,7 +373,7 @@ const BASE_BOOSTERS: Booster[] = [
     price: 12,
     minLevel: 6,
     reqSub: 'gold',
-    blockedTariffs: ['t_start', 't_express3', 't_weekly_a'],
+    blockedTariffs: ['t_stable_ton', 't_flash_24h', 't_btc_classic'],
     limitPerPortfolio: 1
   },
   {
@@ -396,7 +385,7 @@ const BASE_BOOSTERS: Booster[] = [
     price: 18,
     minLevel: 8,
     reqSub: 'platinum',
-    blockedTariffs: ['t_start', 't_express3', 't_weekly_a', 't_weekly_b'],
+    blockedTariffs: ['t_stable_ton', 't_flash_24h', 't_btc_classic', 't_eth_pulse'],
     limitPerPortfolio: 1
   }
 ];
@@ -1353,13 +1342,13 @@ function runSelfTests() {
       limitPerPortfolio: 1
     }
   ];
-  const smallPort: PortfolioItem[] = [{ tariffId: 't_weekly_a', amount: 100, id: 'a' }];
-  const bigPort: PortfolioItem[] = [{ tariffId: 't_month_plus', amount: 10000, id: 'b' }];
+  const smallPort: PortfolioItem[] = [{ tariffId: 't_btc_classic', amount: 100, id: 'a' }];
+  const bigPort: PortfolioItem[] = [{ tariffId: 't_asia_premium', amount: 10000, id: 'b' }];
   const pricedSmall = smartPriceBoostersDyn(testBooster, INIT_TARIFFS, elite, 10, smallPort)[0].price;
   const pricedBig = smartPriceBoostersDyn(testBooster, INIT_TARIFFS, elite, 10, bigPort)[0].price;
   console.assert(pricedBig > pricedSmall, 'dynamic price should grow with portfolio');
 
-  const weekly = INIT_TARIFFS.find((t) => t.id === 't_weekly_a')!;
+  const weekly = INIT_TARIFFS.find((t) => t.id === 't_btc_classic')!;
   const boosterNet = boosterBonusNet(100, testBooster[0], weekly, elite.fee, DEFAULT_PRICING);
   const minBonusShare = DEFAULT_PRICING.investorBonusPct / 100;
   const pricingNet = boosterNet;
@@ -1386,7 +1375,7 @@ function runSelfTests() {
       price: 0,
       minLevel: 1,
       reqSub: null,
-      blockedTariffs: ['t_month_plus'],
+      blockedTariffs: ['t_asia_premium'],
       limitPerPortfolio: 1
     }
   ];
@@ -1464,7 +1453,7 @@ function runSelfTests() {
     SUBSCRIPTIONS[0].fee,
     DEFAULT_PROGRAM_CONTROLS
   );
-  const premiumInsight = designInsights['p_premium28'];
+  const premiumInsight = designInsights['p_exotic_x'];
   console.assert(premiumInsight != null, 'premium insight should be produced');
   if (premiumInsight) {
     console.assert(
@@ -1516,7 +1505,7 @@ function runSelfTests() {
   console.assert(lockedRow.netPerDayFinal <= 0, 'locked plan cashflow per day excludes accrual');
 
   const rangeState = computePortfolioState({
-    portfolio: [{ id: 'rng', tariffId: 't_weekly_a', amount: 500 }],
+    portfolio: [{ id: 'rng', tariffId: 't_btc_classic', amount: 500 }],
     boosters: [],
     accountBoosters: [],
     tariffs: INIT_TARIFFS,
@@ -1667,8 +1656,8 @@ export default function ArbPlanBuilder() {
       subscriptionId: 'elite',
       accountBoosters: ['b400_48h'],
       portfolio: [
-        { id: uid('pi'), tariffId: 't_quarter', amount: 8000 },
-        { id: uid('pi'), tariffId: 't_month_plus', amount: 6000 }
+        { id: uid('pi'), tariffId: 't_asia_premium', amount: 8000 },
+        { id: uid('pi'), tariffId: 'p_vip_hidden_pool', amount: 6000 }
       ],
       rampDays: 14,
       dailyTopUpPerInvestor: 0
@@ -1681,8 +1670,8 @@ export default function ArbPlanBuilder() {
       subscriptionId: 'gold',
       accountBoosters: ['b15_24h', 'b8_24h'],
       portfolio: [
-        { id: uid('pi'), tariffId: 't_weekly_b', amount: 800 },
-        { id: uid('pi'), tariffId: 't_flex14', amount: 1200 }
+        { id: uid('pi'), tariffId: 't_eth_pulse', amount: 800 },
+        { id: uid('pi'), tariffId: 't_defi_basket', amount: 1200 }
       ],
       rampDays: 10,
       dailyTopUpPerInvestor: 25
