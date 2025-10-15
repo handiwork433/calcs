@@ -43,7 +43,6 @@ type TariffSeed = Omit<
   rate: number;
   rateRange?: [number, number];
   rateTarget?: number;
-  bandTightness?: number;
 };
 
 type Booster = {
@@ -251,23 +250,15 @@ type InvestorSegment = {
 };
 
 const DEFAULT_RATE_SPREAD = 0.06;
-const DEFAULT_RATE_COMPRESSION = 0.1;
-const RATE_BAND_MAX_DELTA = 0.0005;
 
 function createTariff(seed: TariffSeed): Tariff {
-  const { rate, rateRange, rateTarget, bandTightness, ...rest } = seed;
-  const [minRateRaw, maxRateRaw] =
-    rateRange ?? [rate * (1 - DEFAULT_RATE_SPREAD), rate * (1 + DEFAULT_RATE_SPREAD)];
-  const baseMin = Math.min(minRateRaw, maxRateRaw);
-  const baseMax = Math.max(minRateRaw, maxRateRaw);
+  const { rate, rateRange, rateTarget, ...rest } = seed;
   const target = rateTarget ?? rate;
-  const tighten = clamp(bandTightness ?? DEFAULT_RATE_COMPRESSION, 0.05, 1);
-  const rawWidth = (baseMax - baseMin) * tighten;
-  const width = rawWidth > 0 ? Math.min(rawWidth, RATE_BAND_MAX_DELTA) : 0;
-  const halfWidth = width / 2;
-  const centre = clamp(target, baseMin, baseMax);
-  const minRate = clamp(centre - halfWidth, baseMin, centre);
-  const maxRate = clamp(centre + halfWidth, centre, baseMax);
+
+  const [minRate, maxRate] = rateRange
+    ? [Math.min(rateRange[0], rateRange[1]), Math.max(rateRange[0], rateRange[1])]
+    : [rate * (1 - DEFAULT_RATE_SPREAD), rate * (1 + DEFAULT_RATE_SPREAD)];
+
   return {
     ...rest,
     dailyRateMin: minRate,
@@ -943,8 +934,10 @@ const DEFAULT_PROGRAM_CONTROLS: ProgramDesignControls = {
 };
 
 const STORAGE_KEY = 'arb-plan-builder-v4';
+const STORAGE_VERSION = 2;
 
 type PersistedState = {
+  version: number;
   tariffs?: Tariff[];
   boosters?: Booster[];
   pricing?: PricingControls;
@@ -1032,7 +1025,9 @@ function readPersistedState(): PersistedState | null {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed ?? null;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.version !== STORAGE_VERSION) return null;
+    return parsed as PersistedState;
   } catch {
     return null;
   }
@@ -2199,6 +2194,7 @@ export default function ArbPlanBuilder() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const payload: PersistedState = {
+      version: STORAGE_VERSION,
       tariffs,
       boosters: boostersRaw,
       pricing: pricingControls,

@@ -36,7 +36,7 @@ After the dependencies are installed, start the development server with `npm run
 - Minimal white dashboard with capital, lift and yield stats surfaced in real time, including per-day/project revenue splits
 - Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
-- StableTON tariff catalogue: 16 планов и программ с тегами, описаниями, стоимостью доступа (ITK/USDT), режимом выплат и ограничениями по уровням/подпискам
+- StableTON tariff catalogue: 16 планов и программ с тегами, описаниями, стоимостью доступа (ITK/USDT), режимом выплат и ограничениями по уровням/подпискам — диапазоны доходности 1:1 соответствуют таблице клиента
 - Карточки тарифов и строки портфеля теперь показывают теги, описание, минимальный вход в ITK и цену доступа, чтобы менеджеры видели отличие программ от бесплатных тарифов
 - Yield bands on every tariff/programme with editable min/max/base rates; planner surfaces the spread while the scenario slider biases calculations within the band
 - Range-aware profit analytics that surface minimum/maximum investor payout corridors (per day and over the full term) in both the planner and the cohort simulator
@@ -55,6 +55,7 @@ After the dependencies are installed, start the development server with `npm run
 - Compressed yield bands to keep daily percentage spreads tight, with min/max corridors reflected across planner analytics
 - Refined glassmorphism-inspired UI with gradient background, pill toggles and softened cards for a contemporary white dashboard look
 - Local persistence of tariff/booster catalogs plus booster pricing and programme premium controls via `localStorage`
+- Версионирование сохранений: при обновлении каталога (например, под StableTON) устаревшие данные автоматически очищаются и не возвращают старые тарифы
 - Scenario lab includes crisis/base/growth presets and defers heavy MMM recalculations so the tab stays responsive for larger portfolios
 
 Self-tests covering ROI maths and pricing safeguards execute automatically on load (see `runSelfTests` inside `ArbPlanBuilder.tsx`).
