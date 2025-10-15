@@ -14,6 +14,8 @@ type TariffAccess = 'level' | 'open';
 type Tariff = {
   id: string;
   name: string;
+  description: string;
+  tags: string[];
   durationDays: number;
   dailyRateMin: number;
   dailyRateMax: number;
@@ -26,6 +28,9 @@ type Tariff = {
   capSlots: number | null;
   category: TariffCategory;
   access: TariffAccess;
+  accessPriceItk: number | null;
+  accessPriceUsd: number | null;
+  minInvestmentItk: number | null;
   entryFee: number;
   recommendedPrincipal: number | null;
   payoutMode: 'stream' | 'locked';
@@ -285,22 +290,374 @@ const SUBSCRIPTIONS: Subscription[] = [
 ];
 
 const INIT_TARIFFS: Tariff[] = [
-  createTariff({ id: 't_stable_ton', name: 'StableTON', durationDays: 3, rate: 0.0035, rateRange: [0.003, 0.004], minLevel: 1, baseMin: 50, baseMax: 500, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_btc_classic', name: 'BTC Classic', durationDays: 5, rate: 0.0045, rateRange: [0.004, 0.005], minLevel: 2, baseMin: 100, baseMax: 1000, reqSub: null, isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_eth_pulse', name: 'ETH Pulse', durationDays: 7, rate: 0.0068, rateRange: [0.006, 0.0075], minLevel: 2, baseMin: 150, baseMax: 1500, reqSub: 'silver', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_altsafe_pack', name: 'AltSafe Pack', durationDays: 1, rate: 0.01, rateRange: [0.009, 0.011], minLevel: 1, baseMin: 250, baseMax: 2000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_usdt_premium', name: 'USDT Premium', durationDays: 5, rate: 0.007, rateRange: [0.006, 0.008], minLevel: 2, baseMin: 200, baseMax: 3000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_defi_basket', name: 'DeFi Basket', durationDays: 14, rate: 0.01, rateRange: [0.008, 0.012], minLevel: 3, baseMin: 500, baseMax: 5000, reqSub: 'silver', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_nft_flow', name: 'NFT Flow', durationDays: 21, rate: 0.011, rateRange: [0.009, 0.013], minLevel: 3, baseMin: 300, baseMax: 7000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_asia_premium', name: 'Asia Premium', durationDays: 30, rate: 0.0125, rateRange: [0.011, 0.014], minLevel: 4, baseMin: 100, baseMax: 10000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_futures_mix', name: 'Futures Mix', durationDays: 10, rate: 0.0115, rateRange: [0.0095, 0.0135], minLevel: 3, baseMin: 50, baseMax: 5000, reqSub: 'silver', isLimited: false, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_gas_wars_eth', name: 'Gas Wars ETH', durationDays: 5, rate: 0.0175, rateRange: [0.015, 0.02], minLevel: 3, baseMin: 10, baseMax: 500, reqSub: null, isLimited: true, capSlots: 120, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 'p_exotic_x', name: 'Exotic X', durationDays: 21, rate: 0.0215, rateRange: [0.02, 0.023], minLevel: 5, baseMin: 1000, baseMax: 20000, reqSub: 'platinum', isLimited: true, capSlots: null, category: 'program', access: 'open', entryFee: 200, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_flash_24h', name: 'Flash 24h', durationDays: 1, rate: 0.0135, rateRange: [0.012, 0.015], minLevel: 3, baseMin: 100, baseMax: 2000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_volatility_btc', name: 'Volatility BTC', durationDays: 3, rate: 0.02, rateRange: [0.015, 0.025], minLevel: 4, baseMin: 50, baseMax: 4000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' }),
-  createTariff({ id: 't_pump_tracker', name: 'Pump Tracker', durationDays: 15, rate: 0.019, rateRange: [0.014, 0.024], minLevel: 2, baseMin: 50, baseMax: 5000, reqSub: null, isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 'p_vip_hidden_pool', name: 'VIP Hidden Pool', durationDays: 30, rate: 0.0215, rateRange: [0.018, 0.025], minLevel: 6, baseMin: 2000, baseMax: 30000, reqSub: 'vip', isLimited: true, capSlots: null, category: 'program', access: 'open', entryFee: 400, recommendedPrincipal: null, payoutMode: 'stream' }),
-  createTariff({ id: 't_altseason_surge', name: 'AltSeason Surge', durationDays: 10, rate: 0.0185, rateRange: [0.017, 0.02], minLevel: 3, baseMin: 100, baseMax: 5000, reqSub: 'gold', isLimited: true, capSlots: null, category: 'plan', access: 'level', entryFee: 0, recommendedPrincipal: null, payoutMode: 'locked' })
+  createTariff({
+    id: 't_stable_ton',
+    name: 'StableTON',
+    description: 'Арбитраж TON ↔ USDT. Минимальные риски.',
+    tags: ['New', 'Safe'],
+    durationDays: 3,
+    rate: 0.0035,
+    rateRange: [0.003, 0.004],
+    minLevel: 1,
+    baseMin: 50,
+    baseMax: 500,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 500,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_btc_classic',
+    name: 'BTC Classic',
+    description: 'BTC между Binance и Huobi.',
+    tags: ['Hot'],
+    durationDays: 5,
+    rate: 0.0045,
+    rateRange: [0.004, 0.005],
+    minLevel: 2,
+    baseMin: 100,
+    baseMax: 1000,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 1000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_eth_pulse',
+    name: 'ETH Pulse',
+    description: 'ETH-арбитраж, средний риск, высокая ликвидность.',
+    tags: ['Promo'],
+    durationDays: 7,
+    rate: 0.0068,
+    rateRange: [0.006, 0.0075],
+    minLevel: 3,
+    baseMin: 150,
+    baseMax: 1500,
+    reqSub: 'silver',
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 1500,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_altsafe_pack',
+    name: 'AltSafe Pack',
+    description: 'Пул альткоинов Binance ↔ Gate. Сбалансированный риск.',
+    tags: ['New'],
+    durationDays: 1,
+    rate: 0.01,
+    rateRange: [0.009, 0.011],
+    minLevel: 1,
+    baseMin: 250,
+    baseMax: 2000,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 2500,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_usdt_premium',
+    name: 'USDT Premium',
+    description: 'Быстрый арбитраж USDT ↔ Kraken.',
+    tags: ['Limited'],
+    durationDays: 5,
+    rate: 0.007,
+    rateRange: [0.006, 0.008],
+    minLevel: 2,
+    baseMin: 200,
+    baseMax: 3000,
+    reqSub: 'bronze',
+    isLimited: true,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 2000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_defi_basket',
+    name: 'DeFi Basket',
+    description: 'Стейблы через Uniswap ↔ Curve.',
+    tags: ['Hot'],
+    durationDays: 14,
+    rate: 0.01,
+    rateRange: [0.008, 0.012],
+    minLevel: 4,
+    baseMin: 500,
+    baseMax: 5000,
+    reqSub: 'silver',
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 5000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_nft_flow',
+    name: 'NFT Flow',
+    description: 'NFT-токены. Волатильность выше, шанс на x.',
+    tags: ['Promo', 'Hot'],
+    durationDays: 21,
+    rate: 0.011,
+    rateRange: [0.009, 0.013],
+    minLevel: 4,
+    baseMin: 300,
+    baseMax: 7000,
+    reqSub: 'gold',
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 3000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_asia_premium',
+    name: 'Asia Premium',
+    description: '«Korean Premium». Арбитраж в Азии.',
+    tags: ['Limited'],
+    durationDays: 30,
+    rate: 0.0125,
+    rateRange: [0.011, 0.014],
+    minLevel: 5,
+    baseMin: 100,
+    baseMax: 10000,
+    reqSub: 'gold',
+    isLimited: true,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 1000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_futures_mix',
+    name: 'Futures Mix',
+    description: 'Binance Spot ↔ Bybit Futures.',
+    tags: ['Hot'],
+    durationDays: 10,
+    rate: 0.0115,
+    rateRange: [0.0095, 0.0135],
+    minLevel: 3,
+    baseMin: 50,
+    baseMax: 5000,
+    reqSub: 'silver',
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 500,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'locked'
+  }),
+  createTariff({
+    id: 't_gas_wars_eth',
+    name: 'Gas Wars ETH',
+    description: 'Играем на скачках газа ETH.',
+    tags: ['Promo'],
+    durationDays: 5,
+    rate: 0.0175,
+    rateRange: [0.015, 0.02],
+    minLevel: 2,
+    baseMin: 10,
+    baseMax: 500,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 100,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'locked'
+  }),
+  createTariff({
+    id: 'p_exotic_x',
+    name: 'Exotic X',
+    description: 'Арбитраж малоликвидных альтов.',
+    tags: ['Hot', 'Limited'],
+    durationDays: 21,
+    rate: 0.0215,
+    rateRange: [0.02, 0.023],
+    minLevel: 7,
+    baseMin: 1000,
+    baseMax: 20000,
+    reqSub: 'platinum',
+    isLimited: true,
+    capSlots: null,
+    category: 'program',
+    access: 'open',
+    accessPriceItk: 2000,
+    accessPriceUsd: 200,
+    minInvestmentItk: 10000,
+    entryFee: 200,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_flash_24h',
+    name: 'Flash 24h',
+    description: 'Быстрый арбитраж Binance ↔ Bybit.',
+    tags: ['Promo', 'Hot'],
+    durationDays: 1,
+    rate: 0.0135,
+    rateRange: [0.012, 0.015],
+    minLevel: 3,
+    baseMin: 100,
+    baseMax: 2000,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 1000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'locked'
+  }),
+  createTariff({
+    id: 't_volatility_btc',
+    name: 'Volatility BTC',
+    description: 'Опционы BTC (Binance ↔ Deribit).',
+    tags: ['Hot'],
+    durationDays: 3,
+    rate: 0.02,
+    rateRange: [0.015, 0.025],
+    minLevel: 4,
+    baseMin: 50,
+    baseMax: 4000,
+    reqSub: 'gold',
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 500,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'locked'
+  }),
+  createTariff({
+    id: 't_pump_tracker',
+    name: 'Pump Tracker',
+    description: 'Отслеживание пампов MEXC ↔ Gate.',
+    tags: ['Hot'],
+    durationDays: 15,
+    rate: 0.019,
+    rateRange: [0.014, 0.024],
+    minLevel: 3,
+    baseMin: 50,
+    baseMax: 5000,
+    reqSub: null,
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 500,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 'p_vip_hidden_pool',
+    name: 'VIP Hidden Pool',
+    description: 'OTC-арбитраж закрытых API.',
+    tags: ['Limited'],
+    durationDays: 30,
+    rate: 0.0215,
+    rateRange: [0.018, 0.025],
+    minLevel: 8,
+    baseMin: 2000,
+    baseMax: 30000,
+    reqSub: 'vip',
+    isLimited: true,
+    capSlots: null,
+    category: 'program',
+    access: 'open',
+    accessPriceItk: 4000,
+    accessPriceUsd: 400,
+    minInvestmentItk: 20000,
+    entryFee: 400,
+    recommendedPrincipal: null,
+    payoutMode: 'stream'
+  }),
+  createTariff({
+    id: 't_altseason_surge',
+    name: 'AltSeason Surge',
+    description: 'Арбитраж альтов в сезон.',
+    tags: ['Promo'],
+    durationDays: 10,
+    rate: 0.0185,
+    rateRange: [0.017, 0.02],
+    minLevel: 4,
+    baseMin: 100,
+    baseMax: 5000,
+    reqSub: 'gold',
+    isLimited: false,
+    capSlots: null,
+    category: 'plan',
+    access: 'level',
+    accessPriceItk: null,
+    accessPriceUsd: null,
+    minInvestmentItk: 1000,
+    entryFee: 0,
+    recommendedPrincipal: null,
+    payoutMode: 'locked'
+  })
 ];
 
 const BASE_BOOSTERS: Booster[] = [
@@ -602,9 +959,25 @@ function normalizeTariff(t: any): Tariff {
     t?.dailyRateMax ?? t?.rateMax ?? t?.maxRate ?? targetRate * (1 + DEFAULT_RATE_SPREAD);
   const minRate = Math.max(0, Number(minRateRaw));
   const maxRate = Math.max(minRate, Number(maxRateRaw));
+  const tags: string[] = Array.isArray(t?.tags)
+    ? t.tags.map((tag: any) => String(tag).trim()).filter(Boolean)
+    : typeof t?.tags === 'string'
+    ? String(t.tags)
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    : [];
+  const description = typeof t?.description === 'string' ? t.description : '';
+  const toNumberOrNull = (value: any) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
   return {
     id: String(t?.id ?? uid('t')),
     name: String(t?.name ?? 'Tariff'),
+    description,
+    tags,
     durationDays: Number(t?.durationDays ?? 7),
     dailyRateMin: minRate,
     dailyRateMax: maxRate,
@@ -620,6 +993,9 @@ function normalizeTariff(t: any): Tariff {
         : Number(t.capSlots),
     category: t?.category === 'program' ? 'program' : 'plan',
     access: t?.access === 'open' ? 'open' : 'level',
+    accessPriceItk: toNumberOrNull(t?.accessPriceItk ?? t?.accessPriceITK),
+    accessPriceUsd: toNumberOrNull(t?.accessPriceUsd ?? t?.accessPriceUSDT),
+    minInvestmentItk: toNumberOrNull(t?.minInvestmentItk ?? t?.minInvItk ?? t?.minInvestmentITK),
     entryFee: Number(t?.entryFee ?? 0),
     recommendedPrincipal:
       t?.recommendedPrincipal === null || t?.recommendedPrincipal === undefined || t?.recommendedPrincipal === ''
@@ -2288,6 +2664,15 @@ export default function ArbPlanBuilder() {
                 const premiumMet = insight?.requirementMet ?? false;
                 const competitorName = insight?.competitor?.name ?? 'базовым тарифам';
                 const entryFeeGap = insight?.entryFeeGap ?? null;
+                const accessInfo =
+                  t.accessPriceItk != null || t.accessPriceUsd != null
+                    ? [
+                        t.accessPriceItk != null ? `${t.accessPriceItk} ITK` : null,
+                        t.accessPriceUsd != null ? `${t.accessPriceUsd} USDT` : null
+                      ]
+                        .filter(Boolean)
+                        .join(' / ')
+                    : null;
                 return (
                   <React.Fragment key={t.id}>
                     {categoryChanged && (
@@ -2315,6 +2700,7 @@ export default function ArbPlanBuilder() {
                           <div className="section-subtitle">
                             {`${(rateMin * 100).toFixed(2)}–${(rateMax * 100).toFixed(2)}%/d`} • {t.durationDays}d
                           </div>
+                          {t.description && <p className="tariff-description">{t.description}</p>}
                         </div>
                       </div>
                       <div className="tariff-tags">
@@ -2331,12 +2717,29 @@ export default function ArbPlanBuilder() {
                         {t.isLimited && (
                           <span className="badge badge-warn">Слотов: {left}</span>
                         )}
+                        {t.tags.map((tag) => (
+                          <span key={tag} className="badge badge-soft">
+                            #{tag}
+                          </span>
+                        ))}
                       </div>
                       <div className="tariff-meta">
                         <div>
                           <span className="section-subtitle">Диапазон</span>
                           <strong>{fmtMoney(t.baseMin, currency)} – {fmtMoney(t.baseMax, currency)}</strong>
                         </div>
+                        {accessInfo && (
+                          <div>
+                            <span className="section-subtitle">Доступ</span>
+                            <strong>{accessInfo}</strong>
+                          </div>
+                        )}
+                        {t.minInvestmentItk != null && (
+                          <div>
+                            <span className="section-subtitle">Мин. вход ITK</span>
+                            <strong>{t.minInvestmentItk}</strong>
+                          </div>
+                        )}
                         {t.entryFee > 0 && (
                           <div>
                             <span className="section-subtitle">Входной взнос</span>
@@ -2587,6 +2990,15 @@ function TariffRow({
   const rateMax = tariffRateMax(t);
   const rateTarget = tariffRate(t);
   const rateLabel = `${(rateMin * 100).toFixed(2)}–${(rateMax * 100).toFixed(2)}%/d`;
+  const accessInfo =
+    t.accessPriceItk != null || t.accessPriceUsd != null
+      ? [
+          t.accessPriceItk != null ? `${t.accessPriceItk} ITK` : null,
+          t.accessPriceUsd != null ? `${t.accessPriceUsd} USDT` : null
+        ]
+          .filter(Boolean)
+          .join(' / ')
+      : null;
 
   useEffect(() => {
     setAmountInput(formatAmountInput(item.amount));
@@ -2647,6 +3059,9 @@ function TariffRow({
       <div className="flex-between">
         <div>
           <div style={{ fontWeight: 600 }}>{t.name}</div>
+          {t.description && (
+            <p style={{ margin: '4px 0', color: '#475569', fontSize: 13 }}>{t.description}</p>
+          )}
           <div className="flex">
             <span className="badge">{t.category === 'program' ? 'Программа' : 'Тариф'}</span>
             {t.access === 'open' ? (
@@ -2683,6 +3098,21 @@ function TariffRow({
                 Лимит {t.capSlots}
               </span>
             )}
+            {accessInfo && (
+              <span className="badge" style={{ background: '#ede9fe', color: '#5b21b6' }}>
+                Access {accessInfo}
+              </span>
+            )}
+            {t.minInvestmentItk != null && (
+              <span className="badge" style={{ background: '#f8fafc', color: '#475569' }}>
+                Min ITK {t.minInvestmentItk}
+              </span>
+            )}
+            {t.tags.map((tag) => (
+              <span key={tag} className="badge" style={{ background: '#f1f5f9', color: '#475569' }}>
+                #{tag}
+              </span>
+            ))}
           </div>
         </div>
         <button className="danger" onClick={() => removeItem(item.id)}>
@@ -3134,7 +3564,8 @@ function TariffPicker({
   const optionLabel = (tariff: Tariff) => {
     const range = `${(tariffRateMin(tariff) * 100).toFixed(2)}–${(tariffRateMax(tariff) * 100).toFixed(2)}%/д`;
     const payout = tariff.payoutMode === 'locked' ? 'в конце' : 'ежедневно';
-    return `${tariff.name} • ${range} • ${tariff.durationDays}д • ${payout}`;
+    const tags = tariff.tags.length ? ` • ${tariff.tags.join(' / ')}` : '';
+    return `${tariff.name} • ${range} • ${tariff.durationDays}д • ${payout}${tags}`;
   };
 
   const addDisabled =
@@ -3266,6 +3697,15 @@ function TariffQuickPreview({
       ? fmtPercent(insight.premiumAtTarget, 1)
       : '—';
   const belowRecommendation = recommended != null && deposit < recommended;
+  const accessInfo =
+    tariff.accessPriceItk != null || tariff.accessPriceUsd != null
+      ? [
+          tariff.accessPriceItk != null ? `${tariff.accessPriceItk} ITK` : null,
+          tariff.accessPriceUsd != null ? `${tariff.accessPriceUsd} USDT` : null
+        ]
+          .filter(Boolean)
+          .join(' / ')
+      : null;
 
   return (
     <div className="tariff-preview">
@@ -3273,6 +3713,7 @@ function TariffQuickPreview({
         <div>
           <h3>{tariff.name}</h3>
           <span className="muted">ID: {tariff.id}</span>
+          {tariff.description && <p className="muted" style={{ marginTop: 4 }}>{tariff.description}</p>}
         </div>
         <div className="tariff-preview__badges">
           <span className="badge badge-cool">{tariff.category === 'program' ? 'Программа' : 'Тариф'}</span>
@@ -3289,6 +3730,11 @@ function TariffQuickPreview({
               Свободно: {left}
             </span>
           )}
+          {tariff.tags.map((tag) => (
+            <span key={tag} className="badge badge-soft">
+              #{tag}
+            </span>
+          ))}
         </div>
       </div>
       <div className="tariff-preview__grid">
@@ -3339,6 +3785,7 @@ function TariffQuickPreview({
           <span className="muted">
             Безубыточность {insight?.breakevenAmount ? fmtMoney(insight.breakevenAmount, currency) : '—'}
             {paybackDays != null ? ` • ≈ ${paybackDays} дн.` : ''}
+            {accessInfo ? ` • Access: ${accessInfo}` : ''}
           </span>
         </div>
       </div>
@@ -3486,12 +3933,29 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
           ? {
               ...t,
               [field]:
-                field === 'capSlots'
+                field === 'tags'
+                  ? typeof val === 'string'
+                    ? val
+                        .split(',')
+                        .map((tag) => tag.trim())
+                        .filter(Boolean)
+                    : Array.isArray(val)
+                    ? (val as string[])
+                    : []
+                : field === 'description'
+                ? typeof val === 'string'
+                  ? val
+                  : ''
+                : field === 'capSlots'
                   ? val === null
                     ? null
                     : Number(val)
                 : field === 'recommendedPrincipal'
                 ? val === null
+                  ? null
+                  : Number(val)
+                : ['accessPriceItk', 'accessPriceUsd', 'minInvestmentItk'].includes(field as string)
+                ? val === null || val === ''
                   ? null
                   : Number(val)
                 : [
@@ -3517,6 +3981,8 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
     const base = createTariff({
       id,
       name: 'New tariff',
+      description: '',
+      tags: [],
       durationDays: 7,
       rate: 0.005,
       minLevel: 1,
@@ -3527,6 +3993,9 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
       capSlots: null,
       category: 'plan',
       access: 'level',
+      accessPriceItk: null,
+      accessPriceUsd: null,
+      minInvestmentItk: null,
       entryFee: 0,
       recommendedPrincipal: null,
       payoutMode: 'stream'
@@ -3555,6 +4024,8 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
           <thead>
             <tr>
               <th>Название</th>
+              <th>Описание</th>
+              <th>Теги</th>
               <th>Тип</th>
               <th>Доступ</th>
               <th>Дней</th>
@@ -3565,6 +4036,9 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
               <th>Мин Lv</th>
               <th>Мин</th>
               <th>Макс</th>
+              <th>Access ITK</th>
+              <th>Access USDT</th>
+              <th>Min ITK</th>
               <th>Входной взнос</th>
               <th>Реком. депозит</th>
               <th>Req sub</th>
@@ -3578,6 +4052,20 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
               <tr key={t.id}>
                 <td>
                   <input value={t.name} onChange={(e) => update(t.id, 'name', e.target.value)} />
+                </td>
+                <td style={{ minWidth: 220 }}>
+                  <textarea
+                    value={t.description}
+                    onChange={(e) => update(t.id, 'description', e.target.value)}
+                    rows={2}
+                  />
+                </td>
+                <td style={{ minWidth: 160 }}>
+                  <input
+                    value={t.tags.join(', ')}
+                    onChange={(e) => update(t.id, 'tags', e.target.value)}
+                    placeholder="Promo, Hot"
+                  />
                 </td>
                 <td style={{ width: 120 }}>
                   <select value={t.category} onChange={(e) => update(t.id, 'category', e.target.value)}>
@@ -3647,6 +4135,30 @@ function TariffEditor({ tariffs, setTariffs }: TariffEditorProps) {
                     type="number"
                     value={t.baseMax}
                     onChange={(e) => update(t.id, 'baseMax', Number(e.target.value))}
+                  />
+                </td>
+                <td style={{ width: 110 }}>
+                  <input
+                    type="number"
+                    value={t.accessPriceItk ?? ''}
+                    placeholder="—"
+                    onChange={(e) => update(t.id, 'accessPriceItk', e.target.value === '' ? null : Number(e.target.value))}
+                  />
+                </td>
+                <td style={{ width: 110 }}>
+                  <input
+                    type="number"
+                    value={t.accessPriceUsd ?? ''}
+                    placeholder="—"
+                    onChange={(e) => update(t.id, 'accessPriceUsd', e.target.value === '' ? null : Number(e.target.value))}
+                  />
+                </td>
+                <td style={{ width: 110 }}>
+                  <input
+                    type="number"
+                    value={t.minInvestmentItk ?? ''}
+                    placeholder="—"
+                    onChange={(e) => update(t.id, 'minInvestmentItk', e.target.value === '' ? null : Number(e.target.value))}
                   />
                 </td>
                 <td style={{ width: 110 }}>

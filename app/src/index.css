@@ -510,6 +510,13 @@ textarea:focus {
   color: #0f172a;
 }
 
+.tariff-description {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #475569;
+}
+
 .tariff-tags {
   display: flex;
   flex-wrap: wrap;

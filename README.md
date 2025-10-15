@@ -36,7 +36,8 @@ After the dependencies are installed, start the development server with `npm run
 - Minimal white dashboard with capital, lift and yield stats surfaced in real time, including per-day/project revenue splits
 - Time-aware booster analytics: lift per active hour, aggregated booster-hours, payback windows and row-level booster ROI shareouts
 - Booster analytics table showing ROI, payback horizon and portfolio coverage for every option
-- Expanded tariff catalogue with level-gated plans and open-access programmes that can be launched without level requirements
+- StableTON tariff catalogue: 16 планов и программ с тегами, описаниями, стоимостью доступа (ITK/USDT), режимом выплат и ограничениями по уровням/подпискам
+- Карточки тарифов и строки портфеля теперь показывают теги, описание, минимальный вход в ITK и цену доступа, чтобы менеджеры видели отличие программ от бесплатных тарифов
 - Yield bands on every tariff/programme with editable min/max/base rates; planner surfaces the spread while the scenario slider biases calculations within the band
 - Range-aware profit analytics that surface minimum/maximum investor payout corridors (per day and over the full term) in both the planner and the cohort simulator
 - Programme entry fees with automatic break-even analytics, recommended deposit hints and amortised accounting in portfolio stats
